@@ -9,3 +9,10 @@ xcuserdata/
 # Swift
 .swiftpm/
 .build/
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+
+# Local archives
+*.zip

@@ -1,61 +1,354 @@
 import AppKit
 import SwiftUI
+import Combine
+import CoreGraphics
 
+@MainActor
 final class NotchWindowController {
 
-    private var panel: NSPanel?
+    private var panels: [CGDirectDisplayID: NSPanel] = [:]
+
+    private var screenObserver: NSObjectProtocol?
+
+    private var cancellables =
+        Set<AnyCancellable>()
+
+    init() {
+
+        startObservingScreens()
+        startObservingSettings()
+    }
+
+    deinit {
+
+        if let screenObserver {
+
+            NotificationCenter.default.removeObserver(
+                screenObserver
+            )
+        }
+    }
+
+    // MARK: - Show / Hide
 
     func show() {
 
-        guard let screen = NSScreen.main else {
+        refreshPanels()
+    }
+
+    func hide() {
+
+        for panel in panels.values {
+
+            panel.orderOut(
+                nil
+            )
+        }
+    }
+
+    // MARK: - Screen Observer
+
+    private func startObservingScreens() {
+
+        guard screenObserver == nil else {
             return
         }
 
-        let screenFrame = screen.frame
-        let topSafeArea = screen.safeAreaInsets.top
+        screenObserver =
+            NotificationCenter.default.addObserver(
+                forName:
+                    NSApplication
+                        .didChangeScreenParametersNotification,
+                object:
+                    nil,
+                queue:
+                    .main
+            ) { [weak self] _ in
 
-        var notchWidth: CGFloat = 210
+                Task { @MainActor in
 
-        if let leftArea = screen.auxiliaryTopLeftArea,
-           let rightArea = screen.auxiliaryTopRightArea {
+                    self?
+                        .screenConfigurationDidChange()
+                }
+            }
+    }
 
-            notchWidth = rightArea.minX - leftArea.maxX
+    // MARK: - Settings Observer
 
-            print("⬅️ Left area:", leftArea)
-            print("➡️ Right area:", rightArea)
-        } else {
-            print("⚠️ Auxiliary notch areas non disponibili")
-        }
+    private func startObservingSettings() {
 
-        print("🖥 Screen:", screenFrame)
-        print("⬆️ Safe area top:", topSafeArea)
-        print("🔳 Notch width:", notchWidth)
+        AppSettings.shared
+            .$displayMode
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] mode in
 
-        let panelWidth: CGFloat = 520
-        let panelHeight: CGFloat = 180
+                Task { @MainActor in
 
-        let x = screenFrame.midX - panelWidth / 2
-        let y = screenFrame.maxY - panelHeight
+                    print(
+                        "⚙️ Display mode cambiato:",
+                        mode.rawValue
+                    )
 
-        let panel = NSPanel(
-            contentRect: NSRect(
-                x: x,
-                y: y,
-                width: panelWidth,
-                height: panelHeight
-            ),
-            styleMask: [
-                .borderless,
-                .nonactivatingPanel
-            ],
-            backing: .buffered,
-            defer: false
+                    self?
+                        .refreshPanels()
+                }
+            }
+            .store(
+                in:
+                    &cancellables
+            )
+    }
+
+    // MARK: - Screen Change
+
+    private func screenConfigurationDidChange() {
+
+        print(
+            "🖥 Configurazione monitor aggiornata"
         )
 
-        panel.level = .statusBar
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
+        refreshPanels()
+    }
+
+    // MARK: - Refresh
+
+    private func refreshPanels() {
+
+        switch AppSettings.shared.displayMode {
+
+        case .automatic:
+
+            guard let screen =
+                NotchScreenResolver
+                    .preferredScreen()
+            else {
+
+                removeAllPanels()
+
+                return
+            }
+
+            showOnly(
+                on:
+                    screen
+            )
+
+        case .mainDisplay:
+
+            guard let screen =
+                NSScreen.main
+                ?? NSScreen.screens.first
+            else {
+
+                removeAllPanels()
+
+                return
+            }
+
+            showOnly(
+                on:
+                    screen
+            )
+
+        case .allDisplays:
+
+            showOnAllDisplays()
+        }
+    }
+
+    // MARK: - Single Display
+
+    private func showOnly(
+        on screen: NSScreen
+    ) {
+
+        guard let displayID =
+            NotchScreenResolver
+                .displayID(
+                    for:
+                        screen
+                )
+        else {
+
+            return
+        }
+
+        let otherDisplayIDs =
+            panels.keys.filter {
+                $0 != displayID
+            }
+
+        for id in otherDisplayIDs {
+
+            removePanel(
+                for:
+                    id
+            )
+        }
+
+        if let panel =
+            panels[
+                displayID
+            ] {
+
+            updatePanel(
+                panel,
+                on:
+                    screen
+            )
+
+            return
+        }
+
+        createPanel(
+            on:
+                screen,
+            displayID:
+                displayID
+        )
+    }
+
+    // MARK: - All Displays
+
+    private func showOnAllDisplays() {
+
+        let screens =
+            NSScreen.screens
+
+        let activeDisplayIDs =
+            Set(
+                screens.compactMap {
+                    NotchScreenResolver
+                        .displayID(
+                            for:
+                                $0
+                        )
+                }
+            )
+
+        let obsoleteDisplayIDs =
+            panels.keys.filter {
+
+                !activeDisplayIDs.contains(
+                    $0
+                )
+            }
+
+        for id in obsoleteDisplayIDs {
+
+            removePanel(
+                for:
+                    id
+            )
+        }
+
+        for screen in screens {
+
+            guard let displayID =
+                NotchScreenResolver
+                    .displayID(
+                        for:
+                            screen
+                    )
+            else {
+
+                continue
+            }
+
+            if let panel =
+                panels[
+                    displayID
+                ] {
+
+                updatePanel(
+                    panel,
+                    on:
+                        screen
+                )
+
+            } else {
+
+                createPanel(
+                    on:
+                        screen,
+                    displayID:
+                        displayID
+                )
+            }
+        }
+    }
+
+    // MARK: - Create Panel
+
+    private func createPanel(
+        on screen: NSScreen,
+        displayID: CGDirectDisplayID
+    ) {
+
+        let screenFrame =
+            screen.frame
+
+        let notchHeight =
+            resolvedNotchHeight(
+                for:
+                    screen
+            )
+
+        let notchWidth =
+            resolvedNotchWidth(
+                for:
+                    screen
+            )
+
+        let panelWidth:
+            CGFloat = 520
+
+        let panelHeight:
+            CGFloat = 180
+
+        let x =
+            screenFrame.midX
+            - panelWidth / 2
+
+        let y =
+            screenFrame.maxY
+            - panelHeight
+
+        let panel =
+            NSPanel(
+                contentRect:
+                    NSRect(
+                        x:
+                            x,
+                        y:
+                            y,
+                        width:
+                            panelWidth,
+                        height:
+                            panelHeight
+                    ),
+                styleMask: [
+                    .borderless,
+                    .nonactivatingPanel
+                ],
+                backing:
+                    .buffered,
+                defer:
+                    false
+            )
+
+        panel.level =
+            .statusBar
+
+        panel.isOpaque =
+            false
+
+        panel.backgroundColor =
+            .clear
+
+        panel.hasShadow =
+            false
 
         panel.collectionBehavior = [
             .canJoinAllSpaces,
@@ -63,15 +356,209 @@ final class NotchWindowController {
             .stationary
         ]
 
-        panel.contentView = NSHostingView(
-            rootView: NotchView(
-                notchWidth: notchWidth,
-                notchHeight: topSafeArea
+        panel.contentView =
+            NSHostingView(
+                rootView:
+                    NotchView(
+                        notchWidth:
+                            notchWidth,
+                        notchHeight:
+                            notchHeight
+                    )
             )
-        )
 
         panel.orderFrontRegardless()
 
-        self.panel = panel
+        panels[
+            displayID
+        ] = panel
+
+        logScreen(
+            screen,
+            action:
+                "creata"
+        )
+    }
+
+    // MARK: - Update Panel
+
+    private func updatePanel(
+        _ panel: NSPanel,
+        on screen: NSScreen
+    ) {
+
+        let screenFrame =
+            screen.frame
+
+        let panelWidth =
+            panel.frame.width
+
+        let panelHeight =
+            panel.frame.height
+
+        let x =
+            screenFrame.midX
+            - panelWidth / 2
+
+        let y =
+            screenFrame.maxY
+            - panelHeight
+
+        panel.setFrameOrigin(
+            NSPoint(
+                x:
+                    x,
+                y:
+                    y
+            )
+        )
+
+        let notchWidth =
+            resolvedNotchWidth(
+                for:
+                    screen
+            )
+
+        let notchHeight =
+            resolvedNotchHeight(
+                for:
+                    screen
+            )
+
+        panel.contentView =
+            NSHostingView(
+                rootView:
+                    NotchView(
+                        notchWidth:
+                            notchWidth,
+                        notchHeight:
+                            notchHeight
+                    )
+            )
+
+        panel.orderFrontRegardless()
+
+        logScreen(
+            screen,
+            action:
+                "aggiornata"
+        )
+    }
+
+    // MARK: - Remove Panel
+
+    private func removePanel(
+        for displayID: CGDirectDisplayID
+    ) {
+
+        guard let panel =
+            panels.removeValue(
+                forKey:
+                    displayID
+            )
+        else {
+
+            return
+        }
+
+        panel.orderOut(
+            nil
+        )
+
+        panel.contentView =
+            nil
+
+        panel.close()
+
+        print(
+            "🗑 Panel rimosso:",
+            displayID
+        )
+    }
+
+    private func removeAllPanels() {
+
+        let ids =
+            Array(
+                panels.keys
+            )
+
+        for id in ids {
+
+            removePanel(
+                for:
+                    id
+            )
+        }
+    }
+
+    // MARK: - Geometry
+
+    private func resolvedNotchWidth(
+        for screen: NSScreen
+    ) -> CGFloat {
+
+        if let leftArea =
+            screen.auxiliaryTopLeftArea,
+           let rightArea =
+            screen.auxiliaryTopRightArea {
+
+            let width =
+                rightArea.minX
+                - leftArea.maxX
+
+            print(
+                "⬅️ Left area:",
+                leftArea
+            )
+
+            print(
+                "➡️ Right area:",
+                rightArea
+            )
+
+            return width
+        }
+
+        return 210
+    }
+
+    private func resolvedNotchHeight(
+        for screen: NSScreen
+    ) -> CGFloat {
+
+        let safeArea =
+            screen.safeAreaInsets.top
+
+        if safeArea > 0 {
+
+            return safeArea
+        }
+
+        return 38
+    }
+
+    // MARK: - Logging
+
+    private func logScreen(
+        _ screen: NSScreen,
+        action: String
+    ) {
+
+        if NotchScreenResolver
+            .isBuiltIn(
+                screen
+            ) {
+
+            print(
+                "💻 Dynamic Notch \(action) sul display integrato"
+            )
+
+        } else {
+
+            print(
+                "🖥 Dynamic Notch \(action) sul display esterno"
+            )
+        }
     }
 }

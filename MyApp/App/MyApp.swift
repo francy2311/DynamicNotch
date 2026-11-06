@@ -5,25 +5,127 @@ import AppKit
 struct MyApp: App {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self)
-    var appDelegate
+    private var appDelegate
+
+    @State
+    private var notchIsVisible = true
 
     var body: some Scene {
+
+        // MARK: - Settings
+
         Settings {
-            EmptyView()
+
+            SettingsView()
+        }
+
+        // MARK: - Menu Bar
+
+        MenuBarExtra {
+
+            SettingsLink {
+
+                Label(
+                    "Impostazioni…",
+                    systemImage: "gear"
+                )
+            }
+
+            Divider()
+
+            Button {
+
+                notchIsVisible.toggle()
+
+                appDelegate.setNotchVisible(
+                    notchIsVisible
+                )
+
+            } label: {
+
+                Label(
+                    notchIsVisible
+                    ? "Nascondi Dynamic Notch"
+                    : "Mostra Dynamic Notch",
+
+                    systemImage:
+                        notchIsVisible
+                        ? "eye.slash"
+                        : "eye"
+                )
+            }
+
+            Divider()
+
+            Button {
+
+                NSApp.terminate(nil)
+
+            } label: {
+
+                Label(
+                    "Esci da Dynamic Notch",
+                    systemImage: "power"
+                )
+            }
+            .keyboardShortcut("q")
+
+        } label: {
+
+            Image("MenuBarIcon")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .frame(
+                    width: 18,
+                    height: 12
+                )
         }
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+// MARK: - App Delegate
 
-    private var notchWindowController: NotchWindowController?
+@MainActor
+final class AppDelegate:
+    NSObject,
+    NSApplicationDelegate {
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    private var notchWindowController:
+        NotchWindowController?
 
-        // L'app non appare nel Dock
-        NSApp.setActivationPolicy(.accessory)
+    func applicationDidFinishLaunching(
+        _ notification: Notification
+    ) {
 
-        notchWindowController = NotchWindowController()
-        notchWindowController?.show()
+        let notchController =
+            NotchWindowController()
+
+        notchWindowController =
+            notchController
+
+        notchController.show()
+    }
+
+    // MARK: - Visibility
+
+    func setNotchVisible(
+        _ visible: Bool
+    ) {
+
+        guard let controller =
+            notchWindowController
+        else {
+            return
+        }
+
+        if visible {
+
+            controller.show()
+
+        } else {
+
+            controller.hide()
+        }
     }
 }
