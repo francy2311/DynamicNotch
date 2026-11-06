@@ -8,20 +8,13 @@ final class DynamicNotchMediaController: MediaController {
     private var pollingTask:
         Task<Void, Never>?
 
-    // Ancora temporaneo SOLO per:
-    // - artwork
-    // - bundleIdentifier
-    private let legacyController =
-        MediaControlCLIController()
-
     private let mediaKeyController =
         MediaKeyController()
 
-    private var legacySnapshot:
-        MediaPlaybackSnapshot = .empty
+    private var cachedArtworkData: Data?
 
-    private var customEngineWorking =
-        false
+    private var cachedTrackIdentity:
+        String?
 
     // MARK: - Start
 
@@ -30,8 +23,6 @@ final class DynamicNotchMediaController: MediaController {
         guard pollingTask == nil else {
             return
         }
-
-        startLegacyController()
 
         guard
             let binaryPath =
@@ -72,20 +63,10 @@ final class DynamicNotchMediaController: MediaController {
                                 json
                             ) {
 
-                            self.customEngineWorking =
-                                true
-
                             self.onUpdate?(
                                 snapshot
                             )
                         }
-
-                    } else if
-                        !self.customEngineWorking {
-
-                        self.onUpdate?(
-                            self.legacySnapshot
-                        )
                     }
 
                     do {
@@ -111,34 +92,6 @@ final class DynamicNotchMediaController: MediaController {
 
         pollingTask =
             nil
-
-        legacyController
-            .stop()
-    }
-
-    // MARK: - Legacy metadata
-
-    private func startLegacyController() {
-
-        legacyController.onUpdate =
-            { [weak self] snapshot in
-
-                guard let self else {
-                    return
-                }
-
-                self.legacySnapshot =
-                    snapshot
-
-                if !self.customEngineWorking {
-
-                    self.onUpdate?(
-                        snapshot
-                    )
-                }
-            }
-
-        legacyController.start()
     }
 
     // MARK: - Parse
@@ -168,6 +121,7 @@ final class DynamicNotchMediaController: MediaController {
                         )
                     as? [String: Any]
             else {
+
                 return nil
             }
 
@@ -188,6 +142,13 @@ final class DynamicNotchMediaController: MediaController {
             let album =
                 payload[
                     "album"
+                ]
+                as? String
+                ?? ""
+
+            let bundleIdentifier =
+                payload[
+                    "bundleIdentifier"
                 ]
                 as? String
                 ?? ""
@@ -213,8 +174,10 @@ final class DynamicNotchMediaController: MediaController {
                     ]
                 )
 
+            // MARK: Timestamp
+
             let timestamp:
-                Date
+                Date?
 
             if let value =
                 payload[
@@ -234,6 +197,62 @@ final class DynamicNotchMediaController: MediaController {
                     Date()
             }
 
+            // MARK: Artwork
+
+            let trackIdentity =
+                [
+                    bundleIdentifier,
+                    title,
+                    artist,
+                    album
+                ]
+                .joined(
+                    separator:
+                        "|"
+                )
+
+            var artworkData:
+                Data?
+
+            if let base64 =
+                payload[
+                    "artworkData"
+                ]
+                as? String,
+               let decoded =
+                Data(
+                    base64Encoded:
+                        base64
+                ) {
+
+                artworkData =
+                    decoded
+
+                cachedArtworkData =
+                    decoded
+
+                cachedTrackIdentity =
+                    trackIdentity
+
+            } else if
+                cachedTrackIdentity
+                    == trackIdentity {
+
+                artworkData =
+                    cachedArtworkData
+
+            } else {
+
+                cachedArtworkData =
+                    nil
+
+                cachedTrackIdentity =
+                    trackIdentity
+
+                artworkData =
+                    nil
+            }
+
             return MediaPlaybackSnapshot(
                 title:
                     title,
@@ -245,12 +264,10 @@ final class DynamicNotchMediaController: MediaController {
                     album,
 
                 artworkData:
-                    legacySnapshot
-                        .artworkData,
+                    artworkData,
 
                 bundleIdentifier:
-                    legacySnapshot
-                        .bundleIdentifier,
+                    bundleIdentifier,
 
                 isPlaying:
                     isPlaying,
@@ -276,7 +293,7 @@ final class DynamicNotchMediaController: MediaController {
         }
     }
 
-    // MARK: - Controls
+    // MARK: - Universal Controls
 
     func togglePlayback() {
 
@@ -304,10 +321,7 @@ final class DynamicNotchMediaController: MediaController {
 
         print(
             "⏱ DynamicNotch seek:",
-            seconds,
-            "player:",
-            legacySnapshot
-                .bundleIdentifier
+            seconds
         )
 
         executeCommand(
@@ -366,7 +380,7 @@ final class DynamicNotchMediaController: MediaController {
         }
     }
 
-    // MARK: - Framework
+    // MARK: - Framework Path
 
     private func dynamicNotchMediaBinaryPath()
         -> String? {
@@ -376,6 +390,7 @@ final class DynamicNotchMediaController: MediaController {
                 Bundle.main
                     .resourceURL
         else {
+
             return nil
         }
 
@@ -410,7 +425,7 @@ final class DynamicNotchMediaController: MediaController {
         return binaryURL.path
     }
 
-    // MARK: - Perl bridge
+    // MARK: - Perl Bridge
 
     nonisolated
     private static func executeBridge(
@@ -527,9 +542,6 @@ final class DynamicNotchMediaController: MediaController {
 
                 try process.run()
 
-                process
-                    .waitUntilExit()
-
             } catch {
 
                 print(
@@ -540,15 +552,46 @@ final class DynamicNotchMediaController: MediaController {
                 return nil
             }
 
-            let outputData =
+            /*
+             IMPORTANTISSIMO
+
+             Leggiamo stdout e stderr mentre il processo
+             è ancora in esecuzione.
+
+             Prima facevamo:
+
+                 process.waitUntilExit()
+                 readDataToEndOfFile()
+
+             Con artwork Base64 molto grande la pipe
+             poteva riempirsi e bloccare Perl.
+
+             Perl aspettava Swift.
+             Swift aspettava che Perl terminasse.
+
+             Deadlock.
+             */
+
+            async let outputDataTask: Data = {
                 stdout
                     .fileHandleForReading
                     .readDataToEndOfFile()
+            }()
 
-            let errorData =
+            async let errorDataTask: Data = {
                 stderr
                     .fileHandleForReading
                     .readDataToEndOfFile()
+            }()
+
+            let outputData =
+                await outputDataTask
+
+            let errorData =
+                await errorDataTask
+
+            process
+                .waitUntilExit()
 
             if process.terminationStatus != 0 {
 
@@ -579,6 +622,7 @@ final class DynamicNotchMediaController: MediaController {
                             .utf8
                     )
             else {
+
                 return nil
             }
 
