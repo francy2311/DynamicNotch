@@ -8,14 +8,27 @@ final class DynamicNotchMediaController: MediaController {
     private var pollingTask:
         Task<Void, Never>?
 
+    private var artworkTask:
+        Task<Void, Never>?
+
     private let mediaKeyController =
         MediaKeyController()
 
+    // MARK: - State
+
+    private var latestSnapshot:
+        MediaPlaybackSnapshot =
+            .empty
+
+    private var latestTrackIdentity:
+        String?
+
     // MARK: - Artwork Cache
 
-    private var cachedArtworkData: Data?
+    private var cachedArtworkData:
+        Data?
 
-    private var cachedTrackIdentity:
+    private var cachedArtworkIdentity:
         String?
 
     // MARK: - Start
@@ -52,7 +65,7 @@ final class DynamicNotchMediaController: MediaController {
 
                 while !Task.isCancelled {
 
-                    let pollStart =
+                    let pollStartedAt =
                         Date()
 
                     if let json =
@@ -61,39 +74,36 @@ final class DynamicNotchMediaController: MediaController {
                                 binaryPath,
                             action:
                                 "get"
+                        ),
+                       let snapshot =
+                        self.parseMetadataSnapshot(
+                            json
                         ) {
 
-                        if let snapshot =
-                            self.parseCustomSnapshot(
-                                json
-                            ) {
-
-                            self.onUpdate?(
-                                snapshot
-                            )
-                        }
+                        self.handleMetadataSnapshot(
+                            snapshot,
+                            frameworkPath:
+                                binaryPath
+                        )
                     }
 
                     /*
-                     Polling più rapido.
+                     Metadata soltanto:
+                     il payload adesso è molto piccolo.
 
-                     Prima era 1 secondo e il cambio
-                     traccia poteva essere percepito
-                     con parecchio ritardo.
-
-                     350 ms è un buon compromesso
-                     finché artwork e metadata
-                     viaggiano ancora insieme.
+                     Possiamo quindi fare polling
+                     più rapido senza trasportare
+                     artwork Base64 continuamente.
                      */
 
                     let elapsed =
                         Date()
                             .timeIntervalSince(
-                                pollStart
+                                pollStartedAt
                             )
 
                     let targetInterval =
-                        0.35
+                        0.30
 
                     let remaining =
                         targetInterval
@@ -123,15 +133,274 @@ final class DynamicNotchMediaController: MediaController {
 
     func stop() {
 
-        pollingTask?.cancel()
+        pollingTask?
+            .cancel()
 
         pollingTask =
             nil
+
+        artworkTask?
+            .cancel()
+
+        artworkTask =
+            nil
     }
 
-    // MARK: - Parse Snapshot
+    // MARK: - Metadata Handling
 
-    private func parseCustomSnapshot(
+    private func handleMetadataSnapshot(
+        _ incomingSnapshot: MediaPlaybackSnapshot,
+        frameworkPath: String
+    ) {
+
+        let identity =
+            Self.trackIdentity(
+                incomingSnapshot
+            )
+
+        let trackChanged =
+            identity
+            != latestTrackIdentity
+
+        var artworkData:
+            Data?
+
+        /*
+         Se abbiamo già la copertina della
+         stessa traccia, la riutilizziamo.
+         */
+
+        if cachedArtworkIdentity
+            == identity {
+
+            artworkData =
+                cachedArtworkData
+
+        } else {
+
+            artworkData =
+                nil
+        }
+
+        let snapshot =
+            MediaPlaybackSnapshot(
+                title:
+                    incomingSnapshot.title,
+
+                artist:
+                    incomingSnapshot.artist,
+
+                album:
+                    incomingSnapshot.album,
+
+                artworkData:
+                    artworkData,
+
+                bundleIdentifier:
+                    incomingSnapshot.bundleIdentifier,
+
+                isPlaying:
+                    incomingSnapshot.isPlaying,
+
+                duration:
+                    incomingSnapshot.duration,
+
+                elapsedTime:
+                    incomingSnapshot.elapsedTime,
+
+                timestamp:
+                    incomingSnapshot.timestamp
+            )
+
+        latestSnapshot =
+            snapshot
+
+        latestTrackIdentity =
+            identity
+
+        /*
+         Metadata vengono pubblicati SUBITO.
+
+         La UI quindi non aspetta più
+         che venga caricata la copertina.
+         */
+
+        onUpdate?(
+            snapshot
+        )
+
+        // MARK: Artwork fetch
+
+        guard trackChanged else {
+            return
+        }
+
+        guard
+            Self.hasValidMedia(
+                snapshot
+            )
+        else {
+
+            cachedArtworkData =
+                nil
+
+            cachedArtworkIdentity =
+                nil
+
+            artworkTask?
+                .cancel()
+
+            artworkTask =
+                nil
+
+            return
+        }
+
+        /*
+         È cambiata traccia.
+
+         Non vogliamo mai mostrare la
+         copertina del brano precedente.
+         */
+
+        cachedArtworkData =
+            nil
+
+        cachedArtworkIdentity =
+            nil
+
+        artworkTask?
+            .cancel()
+
+        fetchArtwork(
+            expectedIdentity:
+                identity,
+            frameworkPath:
+                frameworkPath
+        )
+    }
+
+    // MARK: - Artwork Fetch
+
+    private func fetchArtwork(
+        expectedIdentity: String,
+        frameworkPath: String
+    ) {
+
+        artworkTask =
+            Task { [weak self] in
+
+                guard let self else {
+                    return
+                }
+
+                let json =
+                    await Self.executeBridge(
+                        frameworkPath:
+                            frameworkPath,
+                        action:
+                            "artwork"
+                    )
+
+                guard
+                    !Task.isCancelled,
+                    let json
+                else {
+                    return
+                }
+
+                guard
+                    let artworkResult =
+                        Self.parseArtwork(
+                            json
+                        )
+                else {
+                    return
+                }
+
+                /*
+                 Verifica 1:
+                 l'artwork restituito deve essere
+                 della traccia che avevamo richiesto.
+                 */
+
+                guard
+                    artworkResult.identity
+                        == expectedIdentity
+                else {
+
+                    print(
+                        "⚠️ Artwork scartato: traccia cambiata durante il caricamento"
+                    )
+
+                    return
+                }
+
+                /*
+                 Verifica 2:
+                 nel frattempo la UI deve essere
+                 ancora sulla stessa traccia.
+                 */
+
+                guard
+                    self.latestTrackIdentity
+                        == expectedIdentity
+                else {
+
+                    return
+                }
+
+                self.cachedArtworkData =
+                    artworkResult.data
+
+                self.cachedArtworkIdentity =
+                    expectedIdentity
+
+                let current =
+                    self.latestSnapshot
+
+                let updated =
+                    MediaPlaybackSnapshot(
+                        title:
+                            current.title,
+
+                        artist:
+                            current.artist,
+
+                        album:
+                            current.album,
+
+                        artworkData:
+                            artworkResult.data,
+
+                        bundleIdentifier:
+                            current.bundleIdentifier,
+
+                        isPlaying:
+                            current.isPlaying,
+
+                        duration:
+                            current.duration,
+
+                        elapsedTime:
+                            current.elapsedTime,
+
+                        timestamp:
+                            current.timestamp
+                    )
+
+                self.latestSnapshot =
+                    updated
+
+                self.onUpdate?(
+                    updated
+                )
+            }
+    }
+
+    // MARK: - Parse Metadata
+
+    private func parseMetadataSnapshot(
         _ json: String
     ) -> MediaPlaybackSnapshot? {
 
@@ -142,7 +411,6 @@ final class DynamicNotchMediaController: MediaController {
                         .utf8
                 )
         else {
-
             return nil
         }
 
@@ -157,11 +425,8 @@ final class DynamicNotchMediaController: MediaController {
                         )
                     as? [String: Any]
             else {
-
                 return nil
             }
-
-            // MARK: Metadata
 
             let title =
                 payload[
@@ -212,8 +477,6 @@ final class DynamicNotchMediaController: MediaController {
                     ]
                 )
 
-            // MARK: Timestamp
-
             let timestamp:
                 Date?
 
@@ -235,65 +498,6 @@ final class DynamicNotchMediaController: MediaController {
                     Date()
             }
 
-            // MARK: Track Identity
-
-            let trackIdentity =
-                [
-                    bundleIdentifier,
-                    title,
-                    artist,
-                    album
-                ]
-                .joined(
-                    separator:
-                        "|"
-                )
-
-            // MARK: Artwork
-
-            var artworkData:
-                Data?
-
-            if let base64 =
-                payload[
-                    "artworkData"
-                ]
-                as? String,
-               !base64.isEmpty,
-               let decoded =
-                Data(
-                    base64Encoded:
-                        base64
-                ) {
-
-                artworkData =
-                    decoded
-
-                cachedArtworkData =
-                    decoded
-
-                cachedTrackIdentity =
-                    trackIdentity
-
-            } else if
-                cachedTrackIdentity
-                    == trackIdentity {
-
-                artworkData =
-                    cachedArtworkData
-
-            } else {
-
-                cachedArtworkData =
-                    nil
-
-                cachedTrackIdentity =
-                    trackIdentity
-
-                artworkData =
-                    nil
-            }
-
             return MediaPlaybackSnapshot(
                 title:
                     title,
@@ -305,7 +509,7 @@ final class DynamicNotchMediaController: MediaController {
                     album,
 
                 artworkData:
-                    artworkData,
+                    nil,
 
                 bundleIdentifier:
                     bundleIdentifier,
@@ -326,7 +530,7 @@ final class DynamicNotchMediaController: MediaController {
         } catch {
 
             print(
-                "❌ DynamicNotchMedia JSON:",
+                "❌ DynamicNotchMedia metadata JSON:",
                 error
             )
 
@@ -334,7 +538,121 @@ final class DynamicNotchMediaController: MediaController {
         }
     }
 
-    // MARK: - Universal Controls
+    // MARK: - Artwork Result
+
+    private struct ArtworkResult {
+
+        let identity:
+            String
+
+        let data:
+            Data
+    }
+
+    nonisolated
+    private static func parseArtwork(
+        _ json: String
+    ) -> ArtworkResult? {
+
+        guard
+            let jsonData =
+                json.data(
+                    using:
+                        .utf8
+                )
+        else {
+            return nil
+        }
+
+        do {
+
+            guard
+                let payload =
+                    try JSONSerialization
+                        .jsonObject(
+                            with:
+                                jsonData
+                        )
+                    as? [String: Any]
+            else {
+                return nil
+            }
+
+            let title =
+                payload[
+                    "title"
+                ]
+                as? String
+                ?? ""
+
+            let artist =
+                payload[
+                    "artist"
+                ]
+                as? String
+                ?? ""
+
+            let album =
+                payload[
+                    "album"
+                ]
+                as? String
+                ?? ""
+
+            let duration =
+                doubleValue(
+                    payload[
+                        "duration"
+                    ]
+                )
+
+            guard
+                let base64 =
+                    payload[
+                        "artworkData"
+                    ]
+                    as? String,
+                let artworkData =
+                    Data(
+                        base64Encoded:
+                            base64
+                    )
+            else {
+
+                return nil
+            }
+
+            let identity =
+                makeTrackIdentity(
+                    title:
+                        title,
+                    artist:
+                        artist,
+                    album:
+                        album,
+                    duration:
+                        duration
+                )
+
+            return ArtworkResult(
+                identity:
+                    identity,
+                data:
+                    artworkData
+            )
+
+        } catch {
+
+            print(
+                "❌ Artwork JSON:",
+                error
+            )
+
+            return nil
+        }
+    }
+
+    // MARK: - Controls
 
     func togglePlayback() {
 
@@ -421,7 +739,7 @@ final class DynamicNotchMediaController: MediaController {
         }
     }
 
-    // MARK: - Framework Path
+    // MARK: - Framework
 
     private func dynamicNotchMediaBinaryPath()
         -> String? {
@@ -431,7 +749,6 @@ final class DynamicNotchMediaController: MediaController {
                 Bundle.main
                     .resourceURL
         else {
-
             return nil
         }
 
@@ -527,6 +844,15 @@ final class DynamicNotchMediaController: MediaController {
                     print $json;
                 }
 
+            } elsif ($action eq "artwork") {
+
+                my $json =
+                    DynamicNotchMedia::getArtwork();
+
+                if (defined $json) {
+                    print $json;
+                }
+
             } elsif ($action eq "seek") {
 
                 die "Missing seek value"
@@ -582,8 +908,6 @@ final class DynamicNotchMediaController: MediaController {
             process.standardError =
                 stderr
 
-            // MARK: Start
-
             do {
 
                 try process.run()
@@ -599,12 +923,14 @@ final class DynamicNotchMediaController: MediaController {
             }
 
             /*
-             Dreniamo stdout mentre Perl
-             è ancora in esecuzione.
+             Metadata sono piccoli.
 
-             Questo evita il deadlock
-             causato dagli artwork Base64
-             più grandi.
+             Artwork può essere grande,
+             ma viene richiesto soltanto
+             al cambio traccia.
+
+             Continuiamo comunque a drenare
+             stdout prima di waitUntilExit().
              */
 
             let outputData =
@@ -617,9 +943,8 @@ final class DynamicNotchMediaController: MediaController {
                     .fileHandleForReading
                     .readDataToEndOfFile()
 
-            process.waitUntilExit()
-
-            // MARK: Errors
+            process
+                .waitUntilExit()
 
             if process.terminationStatus != 0 {
 
@@ -641,8 +966,6 @@ final class DynamicNotchMediaController: MediaController {
                 return nil
             }
 
-            // MARK: Output
-
             guard
                 let output =
                     String(
@@ -652,11 +975,6 @@ final class DynamicNotchMediaController: MediaController {
                             .utf8
                     )
             else {
-
-                print(
-                    "❌ Output Perl non UTF-8"
-                )
-
                 return nil
             }
 
@@ -672,6 +990,65 @@ final class DynamicNotchMediaController: MediaController {
                 : trimmed
         }
         .value
+    }
+
+    // MARK: - Identity
+
+    nonisolated
+    private static func trackIdentity(
+        _ snapshot: MediaPlaybackSnapshot
+    ) -> String {
+
+        makeTrackIdentity(
+            title:
+                snapshot.title,
+            artist:
+                snapshot.artist,
+            album:
+                snapshot.album,
+            duration:
+                snapshot.duration
+        )
+    }
+
+    nonisolated
+    private static func makeTrackIdentity(
+        title: String,
+        artist: String,
+        album: String,
+        duration: Double
+    ) -> String {
+
+        [
+            title,
+            artist,
+            album,
+            String(
+                Int(duration)
+            )
+        ]
+        .joined(
+            separator:
+                "|"
+        )
+    }
+
+    nonisolated
+    private static func hasValidMedia(
+        _ snapshot: MediaPlaybackSnapshot
+    ) -> Bool {
+
+        let title =
+            snapshot.title
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+
+        return
+            !title.isEmpty
+            &&
+            title != "Nessun brano"
     }
 
     // MARK: - Helpers
