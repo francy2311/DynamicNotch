@@ -128,7 +128,7 @@ struct NotchView: View {
         switch mode {
 
         case .media:
-            return 420
+            return 430
 
         case .volume,
              .brightness:
@@ -142,7 +142,7 @@ struct NotchView: View {
         switch mode {
 
         case .media:
-            return 140
+            return 148
 
         case .volume,
              .brightness:
@@ -484,26 +484,7 @@ struct NotchView: View {
                 controlsView
             }
 
-            HStack(
-                spacing:
-                    10
-            ) {
-
-                if nowPlaying.duration > 0 {
-
-                    seekView
-                        .frame(
-                            maxWidth:
-                                .infinity
-                        )
-
-                } else {
-
-                    Spacer()
-                }
-
-                hardwareButtons
-            }
+            seekSection
         }
         .buttonStyle(
             .plain
@@ -534,7 +515,7 @@ struct NotchView: View {
             alignment:
                 .leading,
             spacing:
-                3
+                4
         ) {
 
             HStack(
@@ -573,6 +554,19 @@ struct NotchView: View {
                 .lineLimit(
                     1
                 )
+                .id(
+                    "title-\(trackIdentity)"
+                )
+                .transition(
+                    .opacity
+                        .combined(
+                            with:
+                                .offset(
+                                    y:
+                                        4
+                                )
+                        )
+                )
             }
 
             Text(
@@ -592,12 +586,26 @@ struct NotchView: View {
             .lineLimit(
                 1
             )
+            .id(
+                "artist-\(trackIdentity)"
+            )
+            .transition(
+                .opacity
+            )
         }
         .frame(
             maxWidth:
-                150,
+                155,
             alignment:
                 .leading
+        )
+        .animation(
+            .easeOut(
+                duration:
+                    0.20
+            ),
+            value:
+                trackIdentity
         )
     }
 
@@ -606,7 +614,20 @@ struct NotchView: View {
     private var artworkView:
         some View {
 
-        Group {
+        ZStack {
+
+            RoundedRectangle(
+                cornerRadius:
+                    10,
+                style:
+                    .continuous
+            )
+            .fill(
+                Color.white
+                    .opacity(
+                        0.07
+                    )
+            )
 
             if let artwork =
                 nowPlaying.artwork {
@@ -617,55 +638,62 @@ struct NotchView: View {
                 )
                 .resizable()
                 .scaledToFill()
+                .id(
+                    "artwork-\(trackIdentity)"
+                )
+                .transition(
+                    .opacity
+                        .combined(
+                            with:
+                                .scale(
+                                    scale:
+                                        0.90
+                                )
+                        )
+                )
 
             } else {
 
-                ZStack {
-
-                    RoundedRectangle(
-                        cornerRadius:
-                            9,
-                        style:
-                            .continuous
+                Image(
+                    systemName:
+                        "music.note"
+                )
+                .font(
+                    .system(
+                        size:
+                            18,
+                        weight:
+                            .medium
                     )
-                    .fill(
-                        Color.white
-                            .opacity(
-                                0.08
-                            )
-                    )
-
-                    Image(
-                        systemName:
-                            "music.note"
-                    )
-                    .font(
-                        .system(
-                            size:
-                                18,
-                            weight:
-                                .medium
-                        )
-                    )
-                    .foregroundStyle(
-                        .secondary
-                    )
-                }
+                )
+                .foregroundStyle(
+                    .secondary
+                )
             }
         }
         .frame(
             width:
-                48,
+                50,
             height:
-                48
+                50
         )
         .clipShape(
             RoundedRectangle(
                 cornerRadius:
-                    9,
+                    10,
                 style:
                     .continuous
             )
+        )
+        .animation(
+            .spring(
+                response:
+                    0.30,
+                dampingFraction:
+                    0.86
+            ),
+            value:
+                trackIdentity
         )
     }
 
@@ -676,7 +704,7 @@ struct NotchView: View {
 
         HStack(
             spacing:
-                12
+                10
         ) {
 
             playerButton(
@@ -701,7 +729,9 @@ struct NotchView: View {
                         .fill(
                             Color.white
                                 .opacity(
-                                    0.12
+                                    nowPlaying.isPlaying
+                                    ? 0.16
+                                    : 0.12
                                 )
                         )
 
@@ -714,19 +744,44 @@ struct NotchView: View {
                     .font(
                         .system(
                             size:
-                                12,
+                                13,
                             weight:
-                                .semibold
+                                .bold
+                        )
+                    )
+                    .contentTransition(
+                        .symbolEffect(
+                            .replace
                         )
                     )
                 }
                 .frame(
                     width:
-                        30,
+                        34,
                     height:
-                        30
+                        34
+                )
+                .scaleEffect(
+                    nowPlaying.isPlaying
+                    ? 1.0
+                    : 0.98
+                )
+                .animation(
+                    .spring(
+                        response:
+                            0.25,
+                        dampingFraction:
+                            0.80
+                    ),
+                    value:
+                        nowPlaying.isPlaying
                 )
             }
+            .help(
+                nowPlaying.isPlaying
+                ? "Pausa"
+                : "Riproduci"
+            )
 
             playerButton(
                 icon:
@@ -763,10 +818,157 @@ struct NotchView: View {
             )
             .frame(
                 width:
-                    22,
+                    24,
                 height:
-                    22
+                    24
             )
+            .contentShape(
+                Circle()
+            )
+        }
+    }
+
+    // MARK: - Seek Section
+
+    private var seekSection:
+        some View {
+
+        HStack(
+            spacing:
+                8
+        ) {
+
+            if nowPlaying.duration > 0 {
+
+                TimelineView(
+                    .periodic(
+                        from:
+                            .now,
+                        by:
+                            0.25
+                    )
+                ) { _ in
+
+                    let current =
+                        nowPlaying
+                            .currentElapsedTime()
+
+                    let displayTime =
+                        isSeeking
+                        ? seekValue
+                        : current
+
+                    VStack(
+                        spacing:
+                            2
+                    ) {
+
+                        Slider(
+                            value:
+                                Binding(
+                                    get: {
+
+                                        isSeeking
+                                        ? seekValue
+                                        : current
+                                    },
+
+                                    set: { value in
+
+                                        seekValue =
+                                            value
+                                    }
+                                ),
+
+                            in:
+                                0...max(
+                                    nowPlaying.duration,
+                                    1
+                                ),
+
+                            onEditingChanged: { editing in
+
+                                if editing {
+
+                                    cancelScheduledClose()
+
+                                    isSeeking =
+                                        true
+
+                                    seekValue =
+                                        current
+
+                                } else {
+
+                                    isSeeking =
+                                        false
+
+                                    nowPlaying
+                                        .seek(
+                                            to:
+                                                seekValue
+                                        )
+
+                                    if !isHovering {
+
+                                        scheduleClose(
+                                            after:
+                                                0.45
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                        .controlSize(
+                            .mini
+                        )
+                        .tint(
+                            .white
+                        )
+
+                        HStack {
+
+                            Text(
+                                formatTime(
+                                    displayTime
+                                )
+                            )
+
+                            Spacer()
+
+                            Text(
+                                formatTime(
+                                    nowPlaying.duration
+                                )
+                            )
+                        }
+                        .font(
+                            .system(
+                                size:
+                                    9,
+                                weight:
+                                    .medium,
+                                design:
+                                    .rounded
+                            )
+                        )
+                        .foregroundStyle(
+                            .secondary
+                        )
+                        .monospacedDigit()
+                    }
+                }
+                .frame(
+                    maxWidth:
+                        .infinity
+                )
+
+            } else {
+
+                Spacer()
+            }
+
+            hardwareButtons
         }
     }
 
@@ -1233,89 +1435,6 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - Seek
-
-    private var seekView:
-        some View {
-
-        TimelineView(
-            .periodic(
-                from:
-                    .now,
-                by:
-                    0.25
-            )
-        ) { _ in
-
-            let current =
-                nowPlaying
-                    .currentElapsedTime()
-
-            Slider(
-                value:
-                    Binding(
-                        get: {
-
-                            isSeeking
-                            ? seekValue
-                            : current
-                        },
-
-                        set: { value in
-
-                            seekValue =
-                                value
-                        }
-                    ),
-
-                in:
-                    0...max(
-                        nowPlaying.duration,
-                        1
-                    ),
-
-                onEditingChanged: { editing in
-
-                    if editing {
-
-                        cancelScheduledClose()
-
-                        isSeeking =
-                            true
-
-                        seekValue =
-                            current
-
-                    } else {
-
-                        isSeeking =
-                            false
-
-                        nowPlaying
-                            .seek(
-                                to:
-                                    seekValue
-                            )
-
-                        if !isHovering {
-
-                            scheduleClose(
-                                after:
-                                    0.45
-                            )
-                        }
-                    }
-                }
-            )
-            .controlSize(
-                .mini
-            )
-            .tint(
-                .white
-            )
-        }
-    }
-
     // MARK: - Hardware Auto Reveal
 
     private func handleHardwareHUDChange() {
@@ -1648,5 +1767,37 @@ struct NotchView: View {
                     false
             }
         }
+    }
+
+    // MARK: - Time Formatting
+
+    private func formatTime(
+        _ seconds: Double
+    ) -> String {
+
+        guard
+            seconds.isFinite,
+            seconds >= 0
+        else {
+            return "0:00"
+        }
+
+        let total =
+            Int(
+                seconds
+            )
+
+        let minutes =
+            total / 60
+
+        let remainingSeconds =
+            total % 60
+
+        return String(
+            format:
+                "%d:%02d",
+            minutes,
+            remainingSeconds
+        )
     }
 }
