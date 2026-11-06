@@ -5,262 +5,224 @@ import Combine
 @MainActor
 final class SystemNowPlayingProvider: ObservableObject {
 
-    @Published var title: String = "Nessun brano"
-    @Published var artist: String = ""
-    @Published var album: String = ""
+    // MARK: - Published
 
-    @Published var artwork: NSImage?
-    @Published var playerIcon: NSImage?
+    @Published
+    var title: String = "Nessun brano"
 
-    @Published var isPlaying: Bool = false
-    @Published var bundleIdentifier: String = ""
+    @Published
+    var artist: String = ""
 
-    @Published var duration: Double = 0
-    @Published var elapsedTime: Double = 0
-    @Published var timestamp: Date?
+    @Published
+    var album: String = ""
 
-    private var process: Process?
-    private var pipe: Pipe?
-    private var streamTask: Task<Void, Never>?
+    @Published
+    var artwork: NSImage?
+
+    @Published
+    var playerIcon: NSImage?
+
+    @Published
+    var isPlaying: Bool = false
+
+    @Published
+    var bundleIdentifier: String = ""
+
+    @Published
+    var duration: Double = 0
+
+    @Published
+    var elapsedTime: Double = 0
+
+    @Published
+    var timestamp: Date?
+
+    // MARK: - Controller
+
+    private let controller: any MediaController
+
+    // MARK: - Default Init
 
     init() {
-        start()
+
+        let controller =
+            DynamicNotchMediaController()
+
+        self.controller =
+            controller
+
+        configureController(
+            controller
+        )
     }
 
-    deinit {
-        streamTask?.cancel()
-        process?.terminate()
+    // MARK: - Custom Init
+
+    init(
+        controller: any MediaController
+    ) {
+
+        self.controller =
+            controller
+
+        configureController(
+            controller
+        )
     }
 
-    // MARK: - Start
+    // MARK: - Controller Setup
 
-    private func start() {
+    private func configureController(
+        _ controller: any MediaController
+    ) {
 
-        guard process == nil else {
-            return
-        }
+        controller.onUpdate =
+            { [weak self] snapshot in
 
-        guard let executable = mediaControlPath() else {
-            print("❌ media-control non trovato")
-            return
-        }
+                self?.apply(
+                    snapshot
+                )
+            }
 
-        let process = Process()
-        let pipe = Pipe()
+        controller.start()
+    }
 
-        process.executableURL = URL(
-            fileURLWithPath: executable
+    // MARK: - Snapshot
+
+    private func apply(
+        _ snapshot:
+            MediaPlaybackSnapshot
+    ) {
+
+        title =
+            snapshot.title
+
+        artist =
+            snapshot.artist
+
+        album =
+            snapshot.album
+
+        isPlaying =
+            snapshot.isPlaying
+
+        duration =
+            snapshot.duration
+
+        elapsedTime =
+            snapshot.elapsedTime
+
+        timestamp =
+            snapshot.timestamp
+
+        updateArtwork(
+            snapshot.artworkData
         )
 
-        process.arguments = [
-            "stream",
-            "--no-diff"
-        ]
-
-        process.standardOutput = pipe
-        process.standardError = FileHandle.standardError
-
-        do {
-
-            try process.run()
-
-            self.process = process
-            self.pipe = pipe
-
-            startReading(
-                from: pipe.fileHandleForReading
-            )
-
-        } catch {
-
-            print(
-                "❌ media-control NON avviato:",
-                error
-            )
-        }
+        updatePlayer(
+            bundleIdentifier:
+                snapshot.bundleIdentifier
+        )
     }
 
-    // MARK: - Stream
+    // MARK: - Artwork
 
-    private func startReading(
-        from handle: FileHandle
+    private func updateArtwork(
+        _ data: Data?
     ) {
 
-        streamTask = Task { [weak self] in
+        guard
+            let data,
+            let image =
+                NSImage(
+                    data: data
+                )
+        else {
 
-            do {
-
-                for try await line in handle.bytes.lines {
-
-                    guard !Task.isCancelled else {
-                        break
-                    }
-
-                    self?.parse(line)
-                }
-
-            } catch {
-
-                if !Task.isCancelled {
-                    print(
-                        "❌ Errore stream:",
-                        error
-                    )
-                }
-            }
-        }
-    }
-
-    // MARK: - Parse
-
-    private func parse(
-        _ line: String
-    ) {
-
-        guard let data = line.data(
-            using: .utf8
-        ) else {
+            artwork = nil
             return
         }
 
-        do {
+        artwork =
+            image
+    }
 
-            guard
-                let json =
-                    try JSONSerialization
-                        .jsonObject(with: data)
-                    as? [String: Any],
+    // MARK: - Player Icon
 
-                let payload =
-                    json["payload"]
-                    as? [String: Any]
+    private func updatePlayer(
+        bundleIdentifier:
+            String
+    ) {
 
-            else {
-                return
-            }
-
-            if payload.isEmpty {
-
-                title = "Nessun brano"
-                artist = ""
-                album = ""
-
-                artwork = nil
-                playerIcon = nil
-
-                isPlaying = false
-                bundleIdentifier = ""
-
-                duration = 0
-                elapsedTime = 0
-                timestamp = nil
-
-                return
-            }
-
-            title =
-                payload["title"] as? String
-                ?? "Nessun brano"
-
-            artist =
-                payload["artist"] as? String
-                ?? ""
-
-            album =
-                payload["album"] as? String
-                ?? ""
-
-            isPlaying =
-                payload["playing"] as? Bool
-                ?? false
-
-            bundleIdentifier =
-                payload["bundleIdentifier"]
-                as? String
-                ?? ""
-
-            updatePlayerIcon()
-
-            if let value =
-                payload["duration"] as? Double {
-
-                duration = value
-
-            } else if let value =
-                payload["duration"] as? Int {
-
-                duration = Double(value)
-
-            } else {
-
-                duration = 0
-            }
-
-            if let value =
-                payload["elapsedTime"] as? Double {
-
-                elapsedTime = value
-
-            } else if let value =
-                payload["elapsedTime"] as? Int {
-
-                elapsedTime = Double(value)
-
-            } else {
-
-                elapsedTime = 0
-            }
-
-            if let value =
-                payload["timestamp"] as? String {
-
-                timestamp =
-                    ISO8601DateFormatter()
-                        .date(from: value)
-
-            } else {
-
-                timestamp = nil
-            }
-
-            if let base64 =
-                payload["artworkData"] as? String {
-
-                updateArtwork(base64)
-
-            } else {
-
-                artwork = nil
-            }
-
-        } catch {
-
-            print(
-                "❌ JSON non valido:",
-                error
-            )
+        guard
+            self.bundleIdentifier
+                != bundleIdentifier
+        else {
+            return
         }
+
+        self.bundleIdentifier =
+            bundleIdentifier
+
+        guard
+            !bundleIdentifier.isEmpty
+        else {
+
+            playerIcon = nil
+            return
+        }
+
+        guard
+            let applicationURL =
+                NSWorkspace
+                    .shared
+                    .urlForApplication(
+                        withBundleIdentifier:
+                            bundleIdentifier
+                    )
+        else {
+
+            playerIcon = nil
+            return
+        }
+
+        playerIcon =
+            NSWorkspace
+                .shared
+                .icon(
+                    forFile:
+                        applicationURL.path
+                )
     }
 
     // MARK: - Current Time
 
-    func currentElapsedTime() -> Double {
+    func currentElapsedTime()
+        -> Double {
 
         guard duration > 0 else {
             return 0
         }
 
-        guard isPlaying,
-              let timestamp else {
+        guard
+            isPlaying,
+            let timestamp
+        else {
 
             return min(
-                max(elapsedTime, 0),
+                max(
+                    elapsedTime,
+                    0
+                ),
                 duration
             )
         }
 
         let delta =
-            Date().timeIntervalSince(timestamp)
+            Date()
+                .timeIntervalSince(
+                    timestamp
+                )
 
         return min(
             max(
@@ -271,155 +233,52 @@ final class SystemNowPlayingProvider: ObservableObject {
         )
     }
 
-    // MARK: - Seek
+    // MARK: - Controls
 
-    func seek(to seconds: Double) {
+    func togglePlayback() {
+
+        controller
+            .togglePlayback()
+    }
+
+    func nextTrack() {
+
+        controller
+            .nextTrack()
+    }
+
+    func previousTrack() {
+
+        controller
+            .previousTrack()
+    }
+
+    func seek(
+        to seconds: Double
+    ) {
 
         guard duration > 0 else {
             return
         }
 
-        let position = min(
-            max(seconds, 0),
-            duration
-        )
-
-        execute(
-            arguments: [
-                "seek",
-                String(position)
-            ]
-        )
-
-        elapsedTime = position
-        timestamp = Date()
-    }
-
-    // MARK: - Artwork
-
-    private func updateArtwork(
-        _ base64: String
-    ) {
-
-        guard
-            let data =
-                Data(
-                    base64Encoded: base64
+        let position =
+            min(
+                max(
+                    seconds,
+                    0
                 ),
-
-            let image =
-                NSImage(data: data)
-
-        else {
-
-            artwork = nil
-            return
-        }
-
-        artwork = image
-    }
-
-    // MARK: - Player Icon
-
-    private func updatePlayerIcon() {
-
-        guard !bundleIdentifier.isEmpty else {
-            playerIcon = nil
-            return
-        }
-
-        guard let appURL =
-            NSWorkspace.shared
-                .urlForApplication(
-                    withBundleIdentifier:
-                        bundleIdentifier
-                )
-        else {
-
-            playerIcon = nil
-            return
-        }
-
-        playerIcon =
-            NSWorkspace.shared.icon(
-                forFile: appURL.path
-            )
-    }
-
-    // MARK: - Controls
-
-    func togglePlayback() {
-        execute(
-            arguments: [
-                "toggle-play-pause"
-            ]
-        )
-    }
-
-    func nextTrack() {
-        execute(
-            arguments: [
-                "next-track"
-            ]
-        )
-    }
-
-    func previousTrack() {
-        execute(
-            arguments: [
-                "previous-track"
-            ]
-        )
-    }
-
-    // MARK: - Execute
-
-    private func execute(
-        arguments: [String]
-    ) {
-
-        guard let executable =
-            mediaControlPath()
-        else {
-            return
-        }
-
-        let process = Process()
-
-        process.executableURL =
-            URL(
-                fileURLWithPath: executable
+                duration
             )
 
-        process.arguments = arguments
+        controller.seek(
+            to:
+                position
+        )
 
-        do {
-            try process.run()
+        elapsedTime =
+            position
 
-        } catch {
-
-            print(
-                "❌ media-control:",
-                error
-            )
-        }
-    }
-
-    // MARK: - Path
-
-    private func mediaControlPath()
-        -> String? {
-
-        let paths = [
-            "/opt/homebrew/bin/media-control",
-            "/usr/local/bin/media-control"
-        ]
-
-        return paths.first {
-            FileManager.default
-                .isExecutableFile(
-                    atPath: $0
-                )
-        }
+        timestamp =
+            Date()
     }
 }
