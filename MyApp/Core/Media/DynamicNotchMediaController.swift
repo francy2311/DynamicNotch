@@ -11,6 +11,8 @@ final class DynamicNotchMediaController: MediaController {
     private let mediaKeyController =
         MediaKeyController()
 
+    // MARK: - Artwork Cache
+
     private var cachedArtworkData: Data?
 
     private var cachedTrackIdentity:
@@ -50,6 +52,9 @@ final class DynamicNotchMediaController: MediaController {
 
                 while !Task.isCancelled {
 
+                    let pollStart =
+                        Date()
+
                     if let json =
                         await Self.executeBridge(
                             frameworkPath:
@@ -69,16 +74,46 @@ final class DynamicNotchMediaController: MediaController {
                         }
                     }
 
-                    do {
+                    /*
+                     Polling più rapido.
 
-                        try await Task.sleep(
-                            for:
-                                .seconds(1)
-                        )
+                     Prima era 1 secondo e il cambio
+                     traccia poteva essere percepito
+                     con parecchio ritardo.
 
-                    } catch {
+                     350 ms è un buon compromesso
+                     finché artwork e metadata
+                     viaggiano ancora insieme.
+                     */
 
-                        break
+                    let elapsed =
+                        Date()
+                            .timeIntervalSince(
+                                pollStart
+                            )
+
+                    let targetInterval =
+                        0.35
+
+                    let remaining =
+                        targetInterval
+                        - elapsed
+
+                    if remaining > 0 {
+
+                        do {
+
+                            try await Task.sleep(
+                                for:
+                                    .seconds(
+                                        remaining
+                                    )
+                            )
+
+                        } catch {
+
+                            break
+                        }
                     }
                 }
             }
@@ -94,7 +129,7 @@ final class DynamicNotchMediaController: MediaController {
             nil
     }
 
-    // MARK: - Parse
+    // MARK: - Parse Snapshot
 
     private func parseCustomSnapshot(
         _ json: String
@@ -107,6 +142,7 @@ final class DynamicNotchMediaController: MediaController {
                         .utf8
                 )
         else {
+
             return nil
         }
 
@@ -124,6 +160,8 @@ final class DynamicNotchMediaController: MediaController {
 
                 return nil
             }
+
+            // MARK: Metadata
 
             let title =
                 payload[
@@ -197,7 +235,7 @@ final class DynamicNotchMediaController: MediaController {
                     Date()
             }
 
-            // MARK: Artwork
+            // MARK: Track Identity
 
             let trackIdentity =
                 [
@@ -211,6 +249,8 @@ final class DynamicNotchMediaController: MediaController {
                         "|"
                 )
 
+            // MARK: Artwork
+
             var artworkData:
                 Data?
 
@@ -219,6 +259,7 @@ final class DynamicNotchMediaController: MediaController {
                     "artworkData"
                 ]
                 as? String,
+               !base64.isEmpty,
                let decoded =
                 Data(
                     base64Encoded:
@@ -434,7 +475,10 @@ final class DynamicNotchMediaController: MediaController {
         value: Double? = nil
     ) async -> String? {
 
-        await Task.detached {
+        await Task.detached(
+            priority:
+                .userInitiated
+        ) {
 
             let perlScript = #"""
             use strict;
@@ -538,6 +582,8 @@ final class DynamicNotchMediaController: MediaController {
             process.standardError =
                 stderr
 
+            // MARK: Start
+
             do {
 
                 try process.run()
@@ -545,7 +591,7 @@ final class DynamicNotchMediaController: MediaController {
             } catch {
 
                 print(
-                    "❌ Perl:",
+                    "❌ Perl start:",
                     error
                 )
 
@@ -553,45 +599,27 @@ final class DynamicNotchMediaController: MediaController {
             }
 
             /*
-             IMPORTANTISSIMO
-
-             Leggiamo stdout e stderr mentre il processo
+             Dreniamo stdout mentre Perl
              è ancora in esecuzione.
 
-             Prima facevamo:
-
-                 process.waitUntilExit()
-                 readDataToEndOfFile()
-
-             Con artwork Base64 molto grande la pipe
-             poteva riempirsi e bloccare Perl.
-
-             Perl aspettava Swift.
-             Swift aspettava che Perl terminasse.
-
-             Deadlock.
+             Questo evita il deadlock
+             causato dagli artwork Base64
+             più grandi.
              */
 
-            async let outputDataTask: Data = {
+            let outputData =
                 stdout
                     .fileHandleForReading
                     .readDataToEndOfFile()
-            }()
 
-            async let errorDataTask: Data = {
+            let errorData =
                 stderr
                     .fileHandleForReading
                     .readDataToEndOfFile()
-            }()
 
-            let outputData =
-                await outputDataTask
+            process.waitUntilExit()
 
-            let errorData =
-                await errorDataTask
-
-            process
-                .waitUntilExit()
+            // MARK: Errors
 
             if process.terminationStatus != 0 {
 
@@ -613,6 +641,8 @@ final class DynamicNotchMediaController: MediaController {
                 return nil
             }
 
+            // MARK: Output
+
             guard
                 let output =
                     String(
@@ -622,6 +652,10 @@ final class DynamicNotchMediaController: MediaController {
                             .utf8
                     )
             else {
+
+                print(
+                    "❌ Output Perl non UTF-8"
+                )
 
                 return nil
             }
@@ -636,7 +670,8 @@ final class DynamicNotchMediaController: MediaController {
             return trimmed.isEmpty
                 ? nil
                 : trimmed
-        }.value
+        }
+        .value
     }
 
     // MARK: - Helpers
@@ -667,6 +702,16 @@ final class DynamicNotchMediaController: MediaController {
                 .doubleValue
         }
 
+        if let value =
+            value as? String,
+           let number =
+            Double(
+                value
+            ) {
+
+            return number
+        }
+
         return 0
     }
 
@@ -686,6 +731,23 @@ final class DynamicNotchMediaController: MediaController {
 
             return value
                 .boolValue
+        }
+
+        if let value =
+            value as? String {
+
+            switch value.lowercased() {
+
+            case "true",
+                 "1",
+                 "yes":
+
+                return true
+
+            default:
+
+                return false
+            }
         }
 
         return false
