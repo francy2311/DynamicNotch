@@ -30,6 +30,10 @@ struct NotchView: View {
     private var timerController:
         NotchTimerController
 
+    @StateObject
+    private var clipboardManager:
+        ClipboardManager
+
     @ObservedObject
     private var settings:
         AppSettings
@@ -37,37 +41,46 @@ struct NotchView: View {
     // MARK: - Presentation
 
     @State
-    private var expanded = false
+    private var expanded =
+        false
 
     @State
-    private var showContent = false
+    private var showContent =
+        false
 
     @State
-    private var isHovering = false
+    private var isHovering =
+        false
 
     @State
     private var mode:
         ContentMode = .media
 
     @State
-    private var isManualHardwareMode = false
+    private var isManualHardwareMode =
+        false
 
     @State
-    private var closeToken = UUID()
+    private var closeToken =
+        UUID()
 
     @State
-    private var temporaryRevealToken = UUID()
+    private var temporaryRevealToken =
+        UUID()
 
     @State
-    private var hardwareRevealToken = UUID()
+    private var hardwareRevealToken =
+        UUID()
 
     @State
-    private var isHardwareInteracting = false
+    private var isHardwareInteracting =
+        false
 
     // MARK: - Seek
 
     @State
-    private var isSeeking = false
+    private var isSeeking =
+        false
 
     @State
     private var seekValue:
@@ -76,7 +89,14 @@ struct NotchView: View {
     // MARK: - Timer
 
     @State
-    private var selectedTimerMinutes = 5
+    private var selectedTimerMinutes =
+        5
+
+    // MARK: - Clipboard Feedback
+
+    @State
+    private var copiedClipboardItemID:
+        UUID?
 
     // MARK: - Media State
 
@@ -121,6 +141,12 @@ struct NotchView: View {
                     NotchTimerController()
             )
 
+        self._clipboardManager =
+            StateObject(
+                wrappedValue:
+                    ClipboardManager()
+            )
+
         self._settings =
             ObservedObject(
                 wrappedValue:
@@ -146,7 +172,7 @@ struct NotchView: View {
             return 410
 
         case .more:
-            return 390
+            return 430
         }
     }
 
@@ -166,8 +192,16 @@ struct NotchView: View {
             return 182
 
         case .more:
-            return 145
+            return 250
         }
+    }
+
+    // MARK: - Clipboard Pin
+
+    private var isClipboardPinned:
+        Bool {
+
+        mode == .more
     }
 
     // MARK: - Media
@@ -300,7 +334,7 @@ struct NotchView: View {
             width:
                 520,
             height:
-                210
+                275
         )
         .onChange(
             of:
@@ -327,6 +361,7 @@ struct NotchView: View {
         ) { _, finished in
 
             if finished {
+
                 handleTimerFinished()
             }
         }
@@ -565,7 +600,7 @@ struct NotchView: View {
 
         case .more:
 
-            moreContent
+            clipboardContent
                 .transition(
                     modeTransition
                 )
@@ -668,25 +703,42 @@ struct NotchView: View {
 
             openNotch()
 
-        } else {
-
-            guard
-                !isSeeking,
-                !isHardwareInteracting
-            else {
-                return
-            }
-
-            isManualHardwareMode =
-                false
-
-            hardwareHUD.clear()
-
-            scheduleClose(
-                after:
-                    0.35
-            )
+            return
         }
+
+        /*
+         CLIPBOARD PINNED
+
+         Quando siamo nella sezione Clipboard,
+         uscire col mouse NON chiude la notch.
+
+         Resterà aperta finché l'utente
+         non seleziona un'altra tab.
+         */
+
+        if isClipboardPinned {
+
+            cancelScheduledClose()
+
+            return
+        }
+
+        guard
+            !isSeeking,
+            !isHardwareInteracting
+        else {
+            return
+        }
+
+        isManualHardwareMode =
+            false
+
+        hardwareHUD.clear()
+
+        scheduleClose(
+            after:
+                0.35
+        )
     }
 
     // MARK: - Media Content
@@ -782,9 +834,6 @@ struct NotchView: View {
                 .lineLimit(
                     1
                 )
-                .id(
-                    "title-\(trackIdentity)"
-                )
             }
 
             Text(
@@ -840,9 +889,6 @@ struct NotchView: View {
                 )
                 .resizable()
                 .scaledToFill()
-                .id(
-                    "artwork-\(trackIdentity)"
-                )
 
             } else {
 
@@ -1194,9 +1240,6 @@ struct NotchView: View {
                     )
                     .foregroundStyle(
                         .secondary
-                    )
-                    .contentTransition(
-                        .numericText()
                     )
                 }
 
@@ -1780,24 +1823,184 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - More
+    // MARK: - Clipboard
 
-    private var moreContent:
+    private var clipboardContent:
         some View {
 
         VStack(
             spacing:
-                8
+                9
+        ) {
+
+            HStack {
+
+                HStack(
+                    spacing:
+                        7
+                ) {
+
+                    Image(
+                        systemName:
+                            "clipboard"
+                    )
+
+                    Text(
+                        "Clipboard"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                14,
+                            weight:
+                                .semibold
+                        )
+                    )
+                }
+
+                Spacer()
+
+                Text(
+                    "Fissa"
+                )
+                .font(
+                    .system(
+                        size:
+                            9,
+                        weight:
+                            .semibold
+                    )
+                )
+                .foregroundStyle(
+                    .secondary
+                )
+
+                Image(
+                    systemName:
+                        "pin.fill"
+                )
+                .font(
+                    .system(
+                        size:
+                            9
+                    )
+                )
+                .foregroundStyle(
+                    .secondary
+                )
+
+                if !clipboardManager
+                    .items
+                    .isEmpty {
+
+                    Button {
+
+                        clipboardManager
+                            .clearHistory()
+
+                    } label: {
+
+                        Image(
+                            systemName:
+                                "trash"
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    11,
+                                weight:
+                                    .semibold
+                            )
+                        )
+                        .frame(
+                            width:
+                                28,
+                            height:
+                                26
+                        )
+                        .background(
+                            Color.white
+                                .opacity(
+                                    0.08
+                                )
+                        )
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius:
+                                    8
+                            )
+                        )
+                    }
+                    .buttonStyle(
+                        .plain
+                    )
+                }
+            }
+
+            if clipboardManager
+                .items
+                .isEmpty {
+
+                clipboardEmptyState
+
+            } else {
+
+                ScrollView(
+                    .vertical,
+                    showsIndicators:
+                        false
+                ) {
+
+                    LazyVStack(
+                        spacing:
+                            5
+                    ) {
+
+                        ForEach(
+                            clipboardManager.items
+                        ) { item in
+
+                            clipboardRow(
+                                item
+                            )
+                        }
+                    }
+                }
+                .frame(
+                    maxHeight:
+                        145
+                )
+            }
+        }
+        .foregroundStyle(
+            .white
+        )
+        .padding(
+            .horizontal,
+            18
+        )
+        .padding(
+            .bottom,
+            12
+        )
+    }
+
+    private var clipboardEmptyState:
+        some View {
+
+        VStack(
+            spacing:
+                7
         ) {
 
             Image(
                 systemName:
-                    "ellipsis.circle"
+                    "doc.on.clipboard"
             )
             .font(
                 .system(
                     size:
-                        24
+                        22
                 )
             )
             .foregroundStyle(
@@ -1805,19 +2008,19 @@ struct NotchView: View {
             )
 
             Text(
-                "Altre funzioni"
+                "Nessun elemento copiato"
             )
             .font(
                 .system(
                     size:
-                        13,
+                        12,
                     weight:
-                        .semibold
+                        .medium
                 )
             )
 
             Text(
-                "Qui aggiungeremo le prossime feature."
+                "Copia testo o file dal Finder."
             )
             .font(
                 .system(
@@ -1829,17 +2032,223 @@ struct NotchView: View {
                 .secondary
             )
         }
-        .foregroundStyle(
-            .white
-        )
         .frame(
             maxWidth:
+                .infinity,
+            maxHeight:
                 .infinity
         )
+    }
+
+    private func clipboardRow(
+        _ item:
+            ClipboardManager.ClipboardItem
+    ) -> some View {
+
+        let copied =
+            copiedClipboardItemID
+            == item.id
+
+        return HStack(
+            spacing:
+                8
+        ) {
+
+            Button {
+
+                copyClipboardItem(
+                    item
+                )
+
+            } label: {
+
+                HStack(
+                    spacing:
+                        9
+                ) {
+
+                    ZStack {
+
+                        RoundedRectangle(
+                            cornerRadius:
+                                7,
+                            style:
+                                .continuous
+                        )
+                        .fill(
+                            Color.white
+                                .opacity(
+                                    copied
+                                    ? 0.16
+                                    : 0.07
+                                )
+                        )
+
+                        Image(
+                            systemName:
+                                copied
+                                ? "checkmark"
+                                : item.systemImage
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    11,
+                                weight:
+                                    .semibold
+                            )
+                        )
+                    }
+                    .frame(
+                        width:
+                            30,
+                        height:
+                            30
+                    )
+
+                    VStack(
+                        alignment:
+                            .leading,
+                        spacing:
+                            1
+                    ) {
+
+                        Text(
+                            item.preview
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    10,
+                                weight:
+                                    .medium
+                            )
+                        )
+                        .lineLimit(
+                            1
+                        )
+
+                        if let subtitle =
+                            item.subtitle {
+
+                            Text(
+                                subtitle
+                            )
+                            .font(
+                                .system(
+                                    size:
+                                        8
+                                )
+                            )
+                            .foregroundStyle(
+                                .secondary
+                            )
+                            .lineLimit(
+                                1
+                            )
+                        }
+                    }
+                    .frame(
+                        maxWidth:
+                            .infinity,
+                        alignment:
+                            .leading
+                    )
+                }
+            }
+            .buttonStyle(
+                .plain
+            )
+
+            Button {
+
+                clipboardManager
+                    .remove(
+                        item
+                    )
+
+            } label: {
+
+                Image(
+                    systemName:
+                        "xmark"
+                )
+                .font(
+                    .system(
+                        size:
+                            9,
+                        weight:
+                            .bold
+                    )
+                )
+                .foregroundStyle(
+                    .secondary
+                )
+                .frame(
+                    width:
+                        24,
+                    height:
+                        24
+                )
+            }
+            .buttonStyle(
+                .plain
+            )
+        }
         .padding(
-            .bottom,
-            12
+            .horizontal,
+            7
         )
+        .frame(
+            minHeight:
+                36
+        )
+        .background(
+            Color.white
+                .opacity(
+                    copied
+                    ? 0.09
+                    : 0.04
+                )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius:
+                    9,
+                style:
+                    .continuous
+            )
+        )
+    }
+
+    private func copyClipboardItem(
+        _ item:
+            ClipboardManager.ClipboardItem
+    ) {
+
+        clipboardManager
+            .copy(
+                item
+            )
+
+        copiedClipboardItemID =
+            item.id
+
+        DispatchQueue.main.asyncAfter(
+            deadline:
+                .now() + 0.8
+        ) {
+
+            guard
+                copiedClipboardItemID
+                    == item.id
+            else {
+                return
+            }
+
+            copiedClipboardItemID =
+                nil
+        }
     }
 
     // MARK: - Switch
@@ -1897,6 +2306,16 @@ struct NotchView: View {
     // MARK: - Hardware Auto Reveal
 
     private func handleHardwareHUDChange() {
+
+        /*
+         Se Clipboard è pinned,
+         non permettiamo ai tasti volume/
+         luminosità di cambiare schermata.
+         */
+
+        guard !isClipboardPinned else {
+            return
+        }
 
         guard
             let presentation =
@@ -1960,6 +2379,7 @@ struct NotchView: View {
             }
 
             guard
+                !isClipboardPinned,
                 !isManualHardwareMode,
                 !isHardwareInteracting
             else {
@@ -1974,6 +2394,7 @@ struct NotchView: View {
             )
 
             if !isHovering {
+
                 closeNotch()
             }
         }
@@ -1986,6 +2407,15 @@ struct NotchView: View {
         guard
             timerController.isFinished
         else {
+            return
+        }
+
+        /*
+         Clipboard pinned ha priorità.
+         Non interrompiamo l'utente.
+         */
+
+        guard !isClipboardPinned else {
             return
         }
 
@@ -2015,6 +2445,7 @@ struct NotchView: View {
             }
 
             if !isHovering {
+
                 closeNotch()
             }
         }
@@ -2028,6 +2459,15 @@ struct NotchView: View {
         to newState:
             MediaState
     ) {
+
+        /*
+         Anche il cambio traccia non deve
+         interrompere una Clipboard pinned.
+         */
+
+        guard !isClipboardPinned else {
+            return
+        }
 
         guard hasValidMedia else {
             return
@@ -2061,6 +2501,10 @@ struct NotchView: View {
 
     private func revealTemporarily() {
 
+        guard !isClipboardPinned else {
+            return
+        }
+
         let token =
             UUID()
 
@@ -2088,6 +2532,7 @@ struct NotchView: View {
             }
 
             guard
+                !isClipboardPinned,
                 !isHovering,
                 !isSeeking,
                 !isManualHardwareMode,
@@ -2106,6 +2551,16 @@ struct NotchView: View {
         after delay:
             TimeInterval
     ) {
+
+        /*
+         Clipboard è l'unica modalità
+         che blocca completamente
+         l'auto-close.
+         */
+
+        guard !isClipboardPinned else {
+            return
+        }
 
         let token =
             UUID()
@@ -2126,6 +2581,7 @@ struct NotchView: View {
             }
 
             guard
+                !isClipboardPinned,
                 !isHovering,
                 !isSeeking,
                 !isHardwareInteracting
@@ -2206,6 +2662,19 @@ struct NotchView: View {
     // MARK: - Close
 
     private func closeNotch() {
+
+        /*
+         Finché siamo in Clipboard,
+         closeNotch non ha effetto.
+
+         Appena l'utente cambia tab,
+         mode != .more e il comportamento
+         torna normale.
+         */
+
+        guard !isClipboardPinned else {
+            return
+        }
 
         guard
             !isHovering,
