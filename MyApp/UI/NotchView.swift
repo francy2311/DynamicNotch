@@ -9,6 +9,8 @@ struct NotchView: View {
         case media
         case volume
         case brightness
+        case timer
+        case more
     }
 
     let notchWidth: CGFloat
@@ -24,6 +26,10 @@ struct NotchView: View {
     private var hardwareHUD:
         HardwareHUDMonitor
 
+    @StateObject
+    private var timerController:
+        NotchTimerController
+
     @ObservedObject
     private var settings:
         AppSettings
@@ -31,50 +37,46 @@ struct NotchView: View {
     // MARK: - Presentation
 
     @State
-    private var expanded =
-        false
+    private var expanded = false
 
     @State
-    private var showContent =
-        false
+    private var showContent = false
 
     @State
-    private var isHovering =
-        false
+    private var isHovering = false
 
     @State
     private var mode:
         ContentMode = .media
 
     @State
-    private var isManualHardwareMode =
-        false
+    private var isManualHardwareMode = false
 
     @State
-    private var closeToken =
-        UUID()
+    private var closeToken = UUID()
 
     @State
-    private var temporaryRevealToken =
-        UUID()
+    private var temporaryRevealToken = UUID()
 
     @State
-    private var hardwareRevealToken =
-        UUID()
+    private var hardwareRevealToken = UUID()
 
     @State
-    private var isHardwareInteracting =
-        false
+    private var isHardwareInteracting = false
 
     // MARK: - Seek
 
     @State
-    private var isSeeking =
-        false
+    private var isSeeking = false
 
     @State
     private var seekValue:
         Double = 0
+
+    // MARK: - Timer
+
+    @State
+    private var selectedTimerMinutes = 5
 
     // MARK: - Media State
 
@@ -113,6 +115,12 @@ struct NotchView: View {
                     HardwareHUDMonitor()
             )
 
+        self._timerController =
+            StateObject(
+                wrappedValue:
+                    NotchTimerController()
+            )
+
         self._settings =
             ObservedObject(
                 wrappedValue:
@@ -120,7 +128,7 @@ struct NotchView: View {
             )
     }
 
-    // MARK: - Dynamic Geometry
+    // MARK: - Geometry
 
     private var expandedWidth:
         CGFloat {
@@ -128,11 +136,17 @@ struct NotchView: View {
         switch mode {
 
         case .media:
-            return 430
+            return 440
 
         case .volume,
              .brightness:
-            return 360
+            return 390
+
+        case .timer:
+            return 410
+
+        case .more:
+            return 390
         }
     }
 
@@ -142,15 +156,21 @@ struct NotchView: View {
         switch mode {
 
         case .media:
-            return 148
+            return 170
 
         case .volume,
              .brightness:
-            return 122
+            return 148
+
+        case .timer:
+            return 182
+
+        case .more:
+            return 145
         }
     }
 
-    // MARK: - Media Info
+    // MARK: - Media
 
     private var mediaState:
         MediaState {
@@ -215,19 +235,26 @@ struct NotchView: View {
 
                 if showContent {
 
-                    displayedContent
-                        .transition(
-                            .opacity
-                                .combined(
-                                    with:
-                                        .scale(
-                                            scale:
-                                                0.96,
-                                            anchor:
-                                                .top
-                                        )
-                                )
-                        )
+                    VStack(
+                        spacing: 0
+                    ) {
+
+                        featureRail
+
+                        contentArea
+                    }
+                    .transition(
+                        .opacity
+                            .combined(
+                                with:
+                                    .scale(
+                                        scale:
+                                            0.97,
+                                        anchor:
+                                            .top
+                                    )
+                            )
+                    )
                 }
             }
             .frame(
@@ -273,7 +300,7 @@ struct NotchView: View {
             width:
                 520,
             height:
-                197
+                210
         )
         .onChange(
             of:
@@ -294,12 +321,210 @@ struct NotchView: View {
 
             handleHardwareHUDChange()
         }
+        .onChange(
+            of:
+                timerController.isFinished
+        ) { _, finished in
+
+            if finished {
+                handleTimerFinished()
+            }
+        }
     }
 
-    // MARK: - Content Router
+    // MARK: - Background
+
+    private var notchBackground:
+        some View {
+
+        UnevenRoundedRectangle(
+            topLeadingRadius:
+                0,
+
+            bottomLeadingRadius:
+                expanded
+                ? 26
+                : 12,
+
+            bottomTrailingRadius:
+                expanded
+                ? 26
+                : 12,
+
+            topTrailingRadius:
+                0,
+
+            style:
+                .continuous
+        )
+        .fill(
+            .black
+        )
+        .shadow(
+            color:
+                expanded
+                ? .black.opacity(
+                    0.32
+                )
+                : .clear,
+
+            radius:
+                15,
+
+            y:
+                5
+        )
+    }
+
+    // MARK: - Feature Rail
+
+    private var featureRail:
+        some View {
+
+        HStack(
+            spacing:
+                8
+        ) {
+
+            featureTab(
+                mode:
+                    .media,
+                icon:
+                    "music.note"
+            )
+
+            featureTab(
+                mode:
+                    .volume,
+                icon:
+                    "speaker.wave.2.fill"
+            )
+
+            featureTab(
+                mode:
+                    .brightness,
+                icon:
+                    "sun.max.fill"
+            )
+
+            featureTab(
+                mode:
+                    .timer,
+                icon:
+                    timerController.isRunning
+                    ? "timer"
+                    : "stopwatch"
+            )
+
+            featureTab(
+                mode:
+                    .more,
+                icon:
+                    "ellipsis"
+            )
+        }
+        .padding(
+            .horizontal,
+            14
+        )
+        .padding(
+            .top,
+            notchHeight + 4
+        )
+        .padding(
+            .bottom,
+            7
+        )
+    }
+
+    private func featureTab(
+        mode tabMode:
+            ContentMode,
+        icon:
+            String
+    ) -> some View {
+
+        let selected =
+            mode == tabMode
+
+        return Button {
+
+            selectMode(
+                tabMode
+            )
+
+        } label: {
+
+            VStack(
+                spacing:
+                    4
+            ) {
+
+                ZStack {
+
+                    RoundedRectangle(
+                        cornerRadius:
+                            8,
+                        style:
+                            .continuous
+                    )
+                    .fill(
+                        Color.white
+                            .opacity(
+                                selected
+                                ? 0.14
+                                : 0.05
+                            )
+                    )
+
+                    Image(
+                        systemName:
+                            icon
+                    )
+                    .font(
+                        .system(
+                            size:
+                                11,
+                            weight:
+                                .semibold
+                        )
+                    )
+                    .foregroundStyle(
+                        selected
+                        ? .white
+                        : .secondary
+                    )
+                }
+                .frame(
+                    width:
+                        38,
+                    height:
+                        26
+                )
+
+                Capsule()
+                    .fill(
+                        selected
+                        ? Color.white
+                        : Color.clear
+                    )
+                    .frame(
+                        width:
+                            14,
+                        height:
+                            2
+                    )
+            }
+        }
+        .buttonStyle(
+            .plain
+        )
+    }
+
+    // MARK: - Content Area
 
     @ViewBuilder
-    private var displayedContent:
+    private var contentArea:
         some View {
 
         switch mode {
@@ -330,6 +555,20 @@ struct NotchView: View {
             .transition(
                 modeTransition
             )
+
+        case .timer:
+
+            timerContent
+                .transition(
+                    modeTransition
+                )
+
+        case .more:
+
+            moreContent
+                .transition(
+                    modeTransition
+                )
         }
     }
 
@@ -343,7 +582,7 @@ struct NotchView: View {
                         with:
                             .scale(
                                 scale:
-                                    0.96,
+                                    0.97,
                                 anchor:
                                     .top
                             )
@@ -351,60 +590,67 @@ struct NotchView: View {
 
             removal:
                 .opacity
-                    .combined(
-                        with:
-                            .scale(
-                                scale:
-                                    0.98,
-                                anchor:
-                                    .top
-                            )
-                    )
         )
     }
 
-    // MARK: - Background
+    // MARK: - Mode Selection
 
-    private var notchBackground:
-        some View {
+    private func selectMode(
+        _ newMode:
+            ContentMode
+    ) {
 
-        UnevenRoundedRectangle(
-            topLeadingRadius:
-                0,
+        cancelScheduledClose()
 
-            bottomLeadingRadius:
-                expanded
-                ? 25
-                : 12,
+        hardwareRevealToken =
+            UUID()
 
-            bottomTrailingRadius:
-                expanded
-                ? 25
-                : 12,
+        switch newMode {
 
-            topTrailingRadius:
-                0,
+        case .media:
 
-            style:
-                .continuous
+            isManualHardwareMode =
+                false
+
+            hardwareHUD.clear()
+
+        case .volume:
+
+            isManualHardwareMode =
+                true
+
+            hardwareHUD
+                .showVolume()
+
+        case .brightness:
+
+            isManualHardwareMode =
+                true
+
+            hardwareHUD
+                .showBrightness()
+
+        case .timer:
+
+            isManualHardwareMode =
+                false
+
+            hardwareHUD.clear()
+
+        case .more:
+
+            isManualHardwareMode =
+                false
+
+            hardwareHUD.clear()
+        }
+
+        switchMode(
+            to:
+                newMode
         )
-        .fill(
-            .black
-        )
-        .shadow(
-            color:
-                expanded
-                ? .black.opacity(
-                    0.32
-                )
-                : .clear,
 
-            radius:
-                15,
-
-            y:
-                5
-        )
+        openNotch()
     }
 
     // MARK: - Hover
@@ -434,21 +680,7 @@ struct NotchView: View {
             isManualHardwareMode =
                 false
 
-            if mode != .media {
-
-                hardwareHUD.clear()
-
-                withAnimation(
-                    .easeInOut(
-                        duration:
-                            0.18
-                    )
-                ) {
-
-                    mode =
-                        .media
-                }
-            }
+            hardwareHUD.clear()
 
             scheduleClose(
                 after:
@@ -497,12 +729,8 @@ struct NotchView: View {
             20
         )
         .padding(
-            .top,
-            notchHeight
-        )
-        .padding(
             .bottom,
-            8
+            10
         )
     }
 
@@ -557,16 +785,6 @@ struct NotchView: View {
                 .id(
                     "title-\(trackIdentity)"
                 )
-                .transition(
-                    .opacity
-                        .combined(
-                            with:
-                                .offset(
-                                    y:
-                                        4
-                                )
-                        )
-                )
             }
 
             Text(
@@ -575,9 +793,7 @@ struct NotchView: View {
             .font(
                 .system(
                     size:
-                        11,
-                    weight:
-                        .regular
+                        11
                 )
             )
             .foregroundStyle(
@@ -586,26 +802,12 @@ struct NotchView: View {
             .lineLimit(
                 1
             )
-            .id(
-                "artist-\(trackIdentity)"
-            )
-            .transition(
-                .opacity
-            )
         }
         .frame(
             maxWidth:
-                155,
+                160,
             alignment:
                 .leading
-        )
-        .animation(
-            .easeOut(
-                duration:
-                    0.20
-            ),
-            value:
-                trackIdentity
         )
     }
 
@@ -641,16 +843,6 @@ struct NotchView: View {
                 .id(
                     "artwork-\(trackIdentity)"
                 )
-                .transition(
-                    .opacity
-                        .combined(
-                            with:
-                                .scale(
-                                    scale:
-                                        0.90
-                                )
-                        )
-                )
 
             } else {
 
@@ -661,9 +853,7 @@ struct NotchView: View {
                 .font(
                     .system(
                         size:
-                            18,
-                        weight:
-                            .medium
+                            18
                     )
                 )
                 .foregroundStyle(
@@ -684,16 +874,6 @@ struct NotchView: View {
                 style:
                     .continuous
             )
-        )
-        .animation(
-            .spring(
-                response:
-                    0.30,
-                dampingFraction:
-                    0.86
-            ),
-            value:
-                trackIdentity
         )
     }
 
@@ -729,9 +909,7 @@ struct NotchView: View {
                         .fill(
                             Color.white
                                 .opacity(
-                                    nowPlaying.isPlaying
-                                    ? 0.16
-                                    : 0.12
+                                    0.14
                                 )
                         )
 
@@ -761,27 +939,7 @@ struct NotchView: View {
                     height:
                         34
                 )
-                .scaleEffect(
-                    nowPlaying.isPlaying
-                    ? 1.0
-                    : 0.98
-                )
-                .animation(
-                    .spring(
-                        response:
-                            0.25,
-                        dampingFraction:
-                            0.80
-                    ),
-                    value:
-                        nowPlaying.isPlaying
-                )
             }
-            .help(
-                nowPlaying.isPlaying
-                ? "Pausa"
-                : "Riproduci"
-            )
 
             playerButton(
                 icon:
@@ -822,21 +980,15 @@ struct NotchView: View {
                 height:
                     24
             )
-            .contentShape(
-                Circle()
-            )
         }
     }
 
-    // MARK: - Seek Section
+    // MARK: - Seek
 
     private var seekSection:
         some View {
 
-        HStack(
-            spacing:
-                8
-        ) {
+        Group {
 
             if nowPlaying.duration > 0 {
 
@@ -908,14 +1060,6 @@ struct NotchView: View {
                                             to:
                                                 seekValue
                                         )
-
-                                    if !isHovering {
-
-                                        scheduleClose(
-                                            after:
-                                                0.45
-                                        )
-                                    }
                                 }
                             }
                         )
@@ -958,109 +1102,16 @@ struct NotchView: View {
                         .monospacedDigit()
                     }
                 }
-                .frame(
-                    maxWidth:
-                        .infinity
-                )
 
             } else {
 
-                Spacer()
-            }
-
-            hardwareButtons
-        }
-    }
-
-    // MARK: - Fixed Hardware Buttons
-
-    private var hardwareButtons:
-        some View {
-
-        HStack(
-            spacing:
-                6
-        ) {
-
-            Button {
-
-                showVolumeMode()
-
-            } label: {
-
-                fixedHardwareButton(
-                    systemImage:
-                        "speaker.wave.2.fill"
-                )
-            }
-            .help(
-                "Volume"
-            )
-
-            Button {
-
-                showBrightnessMode()
-
-            } label: {
-
-                fixedHardwareButton(
-                    systemImage:
-                        "sun.max.fill"
-                )
-            }
-            .help(
-                "Luminosità"
-            )
-        }
-        .buttonStyle(
-            .plain
-        )
-    }
-
-    private func fixedHardwareButton(
-        systemImage: String
-    ) -> some View {
-
-        ZStack {
-
-            RoundedRectangle(
-                cornerRadius:
-                    8,
-                style:
-                    .continuous
-            )
-            .fill(
-                Color.white
-                    .opacity(
-                        0.09
+                Color.clear
+                    .frame(
+                        height:
+                            20
                     )
-            )
-
-            Image(
-                systemName:
-                    systemImage
-            )
-            .font(
-                .system(
-                    size:
-                        11,
-                    weight:
-                        .semibold
-                )
-            )
+            }
         }
-        .frame(
-            width:
-                30,
-            height:
-                26
-        )
-        .contentShape(
-            RoundedRectangle(
-                cornerRadius:
-                    8
-            )
-        )
     }
 
     // MARK: - Hardware Content
@@ -1150,8 +1201,6 @@ struct NotchView: View {
                 }
 
                 Spacer()
-
-                returnButton
             }
 
             Slider(
@@ -1199,16 +1248,10 @@ struct NotchView: View {
             22
         )
         .padding(
-            .top,
-            notchHeight
-        )
-        .padding(
             .bottom,
-            9
+            12
         )
     }
-
-    // MARK: - Hardware Main Button
 
     private func hardwareMainButton(
         kind:
@@ -1254,11 +1297,6 @@ struct NotchView: View {
                             .semibold
                     )
                 )
-                .contentTransition(
-                    .symbolEffect(
-                        .replace
-                    )
-                )
             }
             .frame(
                 width:
@@ -1273,117 +1311,538 @@ struct NotchView: View {
         .disabled(
             kind != .volume
         )
-        .help(
-            kind == .volume
-            ? "Mute / Unmute"
-            : "Luminosità"
+    }
+
+    // MARK: - Timer Content
+
+    private var timerContent:
+        some View {
+
+        VStack(
+            spacing:
+                10
+        ) {
+
+            HStack(
+                spacing:
+                    12
+            ) {
+
+                timerIcon
+
+                VStack(
+                    alignment:
+                        .leading,
+                    spacing:
+                        2
+                ) {
+
+                    Text(
+                        timerController.isFinished
+                        ? "Timer terminato"
+                        : "Timer"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                14,
+                            weight:
+                                .semibold
+                        )
+                    )
+
+                    if timerController.totalSeconds > 0 {
+
+                        Text(
+                            timerController
+                                .formattedRemainingTime
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    20,
+                                weight:
+                                    .semibold,
+                                design:
+                                    .rounded
+                            )
+                        )
+                        .monospacedDigit()
+
+                    } else {
+
+                        Text(
+                            "\(selectedTimerMinutes) min"
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    17,
+                                weight:
+                                    .semibold,
+                                design:
+                                    .rounded
+                            )
+                        )
+                    }
+                }
+
+                Spacer()
+            }
+
+            if timerController.totalSeconds > 0 {
+
+                timerRunningControls
+
+            } else {
+
+                timerSetupControls
+            }
+        }
+        .foregroundStyle(
+            .white
+        )
+        .padding(
+            .horizontal,
+            22
+        )
+        .padding(
+            .bottom,
+            12
         )
     }
 
-    // MARK: - Return Button
-
-    private var returnButton:
+    private var timerIcon:
         some View {
 
-        Button {
+        ZStack {
 
-            returnToMedia()
+            RoundedRectangle(
+                cornerRadius:
+                    12,
+                style:
+                    .continuous
+            )
+            .fill(
+                Color.white
+                    .opacity(
+                        timerController.isFinished
+                        ? 0.18
+                        : 0.10
+                    )
+            )
 
-        } label: {
+            Image(
+                systemName:
+                    timerController.isFinished
+                    ? "bell.fill"
+                    : "timer"
+            )
+            .font(
+                .system(
+                    size:
+                        19,
+                    weight:
+                        .semibold
+                )
+            )
+        }
+        .frame(
+            width:
+                44,
+            height:
+                44
+        )
+    }
 
-            ZStack {
+    // MARK: - Timer Setup
 
-                Circle()
-                    .fill(
+    private var timerSetupControls:
+        some View {
+
+        VStack(
+            spacing:
+                8
+        ) {
+
+            HStack(
+                spacing:
+                    6
+            ) {
+
+                timerPresetButton(
+                    minutes:
+                        5
+                )
+
+                timerPresetButton(
+                    minutes:
+                        10
+                )
+
+                timerPresetButton(
+                    minutes:
+                        15
+                )
+
+                timerPresetButton(
+                    minutes:
+                        25
+                )
+            }
+
+            HStack(
+                spacing:
+                    10
+            ) {
+
+                Button {
+
+                    selectedTimerMinutes =
+                        max(
+                            selectedTimerMinutes - 1,
+                            1
+                        )
+
+                } label: {
+
+                    Image(
+                        systemName:
+                            "minus"
+                    )
+                    .frame(
+                        width:
+                            26,
+                        height:
+                            24
+                    )
+                    .background(
                         Color.white
                             .opacity(
                                 0.09
                             )
                     )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius:
+                                7
+                        )
+                    )
+                }
 
-                Image(
-                    systemName:
-                        "chevron.left"
+                Text(
+                    "\(selectedTimerMinutes) min"
                 )
                 .font(
                     .system(
                         size:
-                            11,
+                            12,
                         weight:
-                            .bold
+                            .semibold,
+                        design:
+                            .rounded
                     )
                 )
+                .frame(
+                    minWidth:
+                        52
+                )
+
+                Button {
+
+                    selectedTimerMinutes =
+                        min(
+                            selectedTimerMinutes + 1,
+                            120
+                        )
+
+                } label: {
+
+                    Image(
+                        systemName:
+                            "plus"
+                    )
+                    .frame(
+                        width:
+                            26,
+                        height:
+                            24
+                    )
+                    .background(
+                        Color.white
+                            .opacity(
+                                0.09
+                            )
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius:
+                                7
+                        )
+                    )
+                }
+
+                Spacer()
+
+                Button {
+
+                    timerController
+                        .start(
+                            minutes:
+                                selectedTimerMinutes
+                        )
+
+                } label: {
+
+                    Label(
+                        "Avvia",
+                        systemImage:
+                            "play.fill"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                11,
+                            weight:
+                                .semibold
+                        )
+                    )
+                    .padding(
+                        .horizontal,
+                        12
+                    )
+                    .frame(
+                        height:
+                            26
+                    )
+                    .background(
+                        Color.white
+                            .opacity(
+                                0.16
+                            )
+                    )
+                    .clipShape(
+                        Capsule()
+                    )
+                }
             }
+        }
+        .buttonStyle(
+            .plain
+        )
+    }
+
+    private func timerPresetButton(
+        minutes: Int
+    ) -> some View {
+
+        Button {
+
+            selectedTimerMinutes =
+                minutes
+
+        } label: {
+
+            Text(
+                "\(minutes)m"
+            )
+            .font(
+                .system(
+                    size:
+                        10,
+                    weight:
+                        .semibold
+                )
+            )
             .frame(
-                width:
-                    30,
+                maxWidth:
+                    .infinity
+            )
+            .frame(
                 height:
-                    30
+                    24
+            )
+            .background(
+                Color.white
+                    .opacity(
+                        selectedTimerMinutes == minutes
+                        ? 0.18
+                        : 0.07
+                    )
+            )
+            .clipShape(
+                Capsule()
             )
         }
         .buttonStyle(
             .plain
         )
-        .help(
-            "Torna al player"
+    }
+
+    // MARK: - Timer Running
+
+    private var timerRunningControls:
+        some View {
+
+        VStack(
+            spacing:
+                8
+        ) {
+
+            ProgressView(
+                value:
+                    timerController.progress,
+                total:
+                    1
+            )
+            .progressViewStyle(
+                .linear
+            )
+            .tint(
+                .white
+            )
+
+            HStack {
+
+                if timerController.isFinished {
+
+                    Button {
+
+                        timerController
+                            .reset()
+
+                    } label: {
+
+                        Label(
+                            "Nuovo timer",
+                            systemImage:
+                                "arrow.counterclockwise"
+                        )
+                    }
+
+                } else {
+
+                    Button {
+
+                        if timerController.isRunning {
+
+                            timerController
+                                .pause()
+
+                        } else {
+
+                            timerController
+                                .resume()
+                        }
+
+                    } label: {
+
+                        Label(
+                            timerController.isRunning
+                            ? "Pausa"
+                            : "Riprendi",
+
+                            systemImage:
+                                timerController.isRunning
+                                ? "pause.fill"
+                                : "play.fill"
+                        )
+                    }
+
+                    Spacer()
+
+                    Button {
+
+                        timerController
+                            .reset()
+
+                    } label: {
+
+                        Label(
+                            "Annulla",
+                            systemImage:
+                                "xmark"
+                        )
+                    }
+                }
+            }
+            .font(
+                .system(
+                    size:
+                        10,
+                    weight:
+                        .semibold
+                )
+            )
+            .buttonStyle(
+                .plain
+            )
+        }
+    }
+
+    // MARK: - More
+
+    private var moreContent:
+        some View {
+
+        VStack(
+            spacing:
+                8
+        ) {
+
+            Image(
+                systemName:
+                    "ellipsis.circle"
+            )
+            .font(
+                .system(
+                    size:
+                        24
+                )
+            )
+            .foregroundStyle(
+                .secondary
+            )
+
+            Text(
+                "Altre funzioni"
+            )
+            .font(
+                .system(
+                    size:
+                        13,
+                    weight:
+                        .semibold
+                )
+            )
+
+            Text(
+                "Qui aggiungeremo le prossime feature."
+            )
+            .font(
+                .system(
+                    size:
+                        10
+                )
+            )
+            .foregroundStyle(
+                .secondary
+            )
+        }
+        .foregroundStyle(
+            .white
+        )
+        .frame(
+            maxWidth:
+                .infinity
+        )
+        .padding(
+            .bottom,
+            12
         )
     }
 
-    // MARK: - Hardware Mode Selection
-
-    private func showVolumeMode() {
-
-        isManualHardwareMode =
-            true
-
-        hardwareRevealToken =
-            UUID()
-
-        hardwareHUD
-            .showVolume()
-
-        switchMode(
-            to:
-                .volume
-        )
-
-        openNotch()
-    }
-
-    private func showBrightnessMode() {
-
-        isManualHardwareMode =
-            true
-
-        hardwareRevealToken =
-            UUID()
-
-        hardwareHUD
-            .showBrightness()
-
-        switchMode(
-            to:
-                .brightness
-        )
-
-        openNotch()
-    }
-
-    private func returnToMedia() {
-
-        isManualHardwareMode =
-            false
-
-        hardwareRevealToken =
-            UUID()
-
-        hardwareHUD.clear()
-
-        switchMode(
-            to:
-                .media
-        )
-    }
+    // MARK: - Switch
 
     private func switchMode(
         to newMode:
@@ -1490,8 +1949,7 @@ struct NotchView: View {
 
         DispatchQueue.main.asyncAfter(
             deadline:
-                .now()
-                + delay
+                .now() + delay
         ) {
 
             guard
@@ -1516,13 +1974,53 @@ struct NotchView: View {
             )
 
             if !isHovering {
-
                 closeNotch()
             }
         }
     }
 
-    // MARK: - Media Auto Reveal
+    // MARK: - Timer Finished
+
+    private func handleTimerFinished() {
+
+        guard
+            timerController.isFinished
+        else {
+            return
+        }
+
+        switchMode(
+            to:
+                .timer
+        )
+
+        openNotch()
+
+        let token =
+            UUID()
+
+        temporaryRevealToken =
+            token
+
+        DispatchQueue.main.asyncAfter(
+            deadline:
+                .now() + 5
+        ) {
+
+            guard
+                temporaryRevealToken
+                    == token
+            else {
+                return
+            }
+
+            if !isHovering {
+                closeNotch()
+            }
+        }
+    }
+
+    // MARK: - Media Reveal
 
     private func handleMediaStateChange(
         from oldState:
@@ -1569,6 +2067,11 @@ struct NotchView: View {
         temporaryRevealToken =
             token
 
+        switchMode(
+            to:
+                .media
+        )
+
         openNotch()
 
         DispatchQueue.main.asyncAfter(
@@ -1597,7 +2100,7 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - Close Scheduling
+    // MARK: - Close
 
     private func scheduleClose(
         after delay:
@@ -1612,8 +2115,7 @@ struct NotchView: View {
 
         DispatchQueue.main.asyncAfter(
             deadline:
-                .now()
-                + delay
+                .now() + delay
         ) {
 
             guard
@@ -1671,9 +2173,7 @@ struct NotchView: View {
                 response:
                     0.33,
                 dampingFraction:
-                    0.80,
-                blendDuration:
-                    0.1
+                    0.80
             )
         ) {
 
@@ -1683,8 +2183,7 @@ struct NotchView: View {
 
         DispatchQueue.main.asyncAfter(
             deadline:
-                .now()
-                + 0.07
+                .now() + 0.07
         ) {
 
             guard expanded else {
@@ -1738,21 +2237,15 @@ struct NotchView: View {
 
         DispatchQueue.main.asyncAfter(
             deadline:
-                .now()
-                + 0.06
+                .now() + 0.06
         ) {
 
             guard
                 !showContent,
-                !isHovering,
-                !isSeeking,
-                !isHardwareInteracting
+                !isHovering
             else {
                 return
             }
-
-            mode =
-                .media
 
             withAnimation(
                 .spring(
@@ -1769,10 +2262,11 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - Time Formatting
+    // MARK: - Time
 
     private func formatTime(
-        _ seconds: Double
+        _ seconds:
+            Double
     ) -> String {
 
         guard
@@ -1790,14 +2284,14 @@ struct NotchView: View {
         let minutes =
             total / 60
 
-        let remainingSeconds =
+        let remaining =
             total % 60
 
         return String(
             format:
                 "%d:%02d",
             minutes,
-            remainingSeconds
+            remaining
         )
     }
 }
