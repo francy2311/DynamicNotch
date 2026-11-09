@@ -39,7 +39,8 @@ final class SystemNowPlayingProvider: ObservableObject {
 
     // MARK: - Controller
 
-    private let controller: any MediaController
+    private let controller:
+        any MediaController
 
     // MARK: - Default Init
 
@@ -59,7 +60,8 @@ final class SystemNowPlayingProvider: ObservableObject {
     // MARK: - Custom Init
 
     init(
-        controller: any MediaController
+        controller:
+            any MediaController
     ) {
 
         self.controller =
@@ -73,7 +75,8 @@ final class SystemNowPlayingProvider: ObservableObject {
     // MARK: - Controller Setup
 
     private func configureController(
-        _ controller: any MediaController
+        _ controller:
+            any MediaController
     ) {
 
         controller.onUpdate =
@@ -128,18 +131,22 @@ final class SystemNowPlayingProvider: ObservableObject {
     // MARK: - Artwork
 
     private func updateArtwork(
-        _ data: Data?
+        _ data:
+            Data?
     ) {
 
         guard
             let data,
             let image =
                 NSImage(
-                    data: data
+                    data:
+                        data
                 )
         else {
 
-            artwork = nil
+            artwork =
+                nil
+
             return
         }
 
@@ -168,7 +175,9 @@ final class SystemNowPlayingProvider: ObservableObject {
             !bundleIdentifier.isEmpty
         else {
 
-            playerIcon = nil
+            playerIcon =
+                nil
+
             return
         }
 
@@ -182,7 +191,9 @@ final class SystemNowPlayingProvider: ObservableObject {
                     )
         else {
 
-            playerIcon = nil
+            playerIcon =
+                nil
+
             return
         }
 
@@ -200,7 +211,10 @@ final class SystemNowPlayingProvider: ObservableObject {
     func currentElapsedTime()
         -> Double {
 
-        guard duration > 0 else {
+        guard
+            duration > 0
+        else {
+
             return 0
         }
 
@@ -254,10 +268,13 @@ final class SystemNowPlayingProvider: ObservableObject {
     }
 
     func seek(
-        to seconds: Double
+        to seconds:
+            Double
     ) {
 
-        guard duration > 0 else {
+        guard
+            duration > 0
+        else {
             return
         }
 

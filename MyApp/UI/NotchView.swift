@@ -5,7 +5,9 @@ struct NotchView: View {
 
     // MARK: - Content Mode
 
-    enum ContentMode: Equatable {
+    enum ContentMode:
+        Equatable {
+
         case media
         case volume
         case brightness
@@ -13,8 +15,18 @@ struct NotchView: View {
         case more
     }
 
-    let notchWidth: CGFloat
-    let notchHeight: CGFloat
+    enum OverflowMode:
+        Equatable {
+
+        case clipboard
+        case battery
+    }
+
+    let notchWidth:
+        CGFloat
+
+    let notchHeight:
+        CGFloat
 
     // MARK: - Providers
 
@@ -33,6 +45,10 @@ struct NotchView: View {
     @StateObject
     private var clipboardManager:
         ClipboardManager
+
+    @StateObject
+    private var batteryMonitor:
+        BatteryMonitor
 
     @ObservedObject
     private var settings:
@@ -55,6 +71,10 @@ struct NotchView: View {
     @State
     private var mode:
         ContentMode = .media
+
+    @State
+    private var overflowMode:
+        OverflowMode = .clipboard
 
     @State
     private var isManualHardwareMode =
@@ -92,7 +112,7 @@ struct NotchView: View {
     private var selectedTimerMinutes =
         5
 
-    // MARK: - Clipboard Feedback
+    // MARK: - Clipboard
 
     @State
     private var copiedClipboardItemID:
@@ -147,6 +167,12 @@ struct NotchView: View {
                     ClipboardManager()
             )
 
+        self._batteryMonitor =
+            StateObject(
+                wrappedValue:
+                    BatteryMonitor()
+            )
+
         self._settings =
             ObservedObject(
                 wrappedValue:
@@ -192,7 +218,15 @@ struct NotchView: View {
             return 182
 
         case .more:
-            return 250
+
+            switch overflowMode {
+
+            case .clipboard:
+                return 275
+
+            case .battery:
+                return 210
+            }
         }
     }
 
@@ -202,6 +236,8 @@ struct NotchView: View {
         Bool {
 
         mode == .more
+        &&
+        overflowMode == .clipboard
     }
 
     // MARK: - Media
@@ -212,6 +248,7 @@ struct NotchView: View {
         MediaState(
             trackIdentity:
                 trackIdentity,
+
             isPlaying:
                 nowPlaying.isPlaying
         )
@@ -318,6 +355,16 @@ struct NotchView: View {
                 value:
                     mode
             )
+            .animation(
+                .spring(
+                    response:
+                        0.30,
+                    dampingFraction:
+                        0.86
+                ),
+                value:
+                    overflowMode
+            )
             .contentShape(
                 Rectangle()
             )
@@ -334,7 +381,7 @@ struct NotchView: View {
             width:
                 520,
             height:
-                275
+                300
         )
         .onChange(
             of:
@@ -556,7 +603,7 @@ struct NotchView: View {
         )
     }
 
-    // MARK: - Content Area
+    // MARK: - Content
 
     @ViewBuilder
     private var contentArea:
@@ -567,18 +614,12 @@ struct NotchView: View {
         case .media:
 
             mediaContent
-                .transition(
-                    modeTransition
-                )
 
         case .volume:
 
             hardwareContent(
                 kind:
                     .volume
-            )
-            .transition(
-                modeTransition
             )
 
         case .brightness:
@@ -587,192 +628,364 @@ struct NotchView: View {
                 kind:
                     .brightness
             )
-            .transition(
-                modeTransition
-            )
 
         case .timer:
 
             timerContent
-                .transition(
-                    modeTransition
-                )
 
         case .more:
 
-            clipboardContent
-                .transition(
-                    modeTransition
-                )
+            overflowContent
         }
     }
 
-    private var modeTransition:
-        AnyTransition {
+    // MARK: - Overflow
 
-        .asymmetric(
-            insertion:
-                .opacity
-                    .combined(
-                        with:
-                            .scale(
-                                scale:
-                                    0.97,
-                                anchor:
-                                    .top
-                            )
-                    ),
-
-            removal:
-                .opacity
-        )
-    }
-
-    // MARK: - Mode Selection
-
-    private func selectMode(
-        _ newMode:
-            ContentMode
-    ) {
-
-        cancelScheduledClose()
-
-        hardwareRevealToken =
-            UUID()
-
-        switch newMode {
-
-        case .media:
-
-            isManualHardwareMode =
-                false
-
-            hardwareHUD.clear()
-
-        case .volume:
-
-            isManualHardwareMode =
-                true
-
-            hardwareHUD
-                .showVolume()
-
-        case .brightness:
-
-            isManualHardwareMode =
-                true
-
-            hardwareHUD
-                .showBrightness()
-
-        case .timer:
-
-            isManualHardwareMode =
-                false
-
-            hardwareHUD.clear()
-
-        case .more:
-
-            isManualHardwareMode =
-                false
-
-            hardwareHUD.clear()
-        }
-
-        switchMode(
-            to:
-                newMode
-        )
-
-        openNotch()
-    }
-
-    // MARK: - Hover
-
-    private func handleHover(
-        _ hovering: Bool
-    ) {
-
-        isHovering =
-            hovering
-
-        if hovering {
-
-            cancelScheduledClose()
-
-            openNotch()
-
-            return
-        }
-
-        /*
-         CLIPBOARD PINNED
-
-         Quando siamo nella sezione Clipboard,
-         uscire col mouse NON chiude la notch.
-
-         Resterà aperta finché l'utente
-         non seleziona un'altra tab.
-         */
-
-        if isClipboardPinned {
-
-            cancelScheduledClose()
-
-            return
-        }
-
-        guard
-            !isSeeking,
-            !isHardwareInteracting
-        else {
-            return
-        }
-
-        isManualHardwareMode =
-            false
-
-        hardwareHUD.clear()
-
-        scheduleClose(
-            after:
-                0.35
-        )
-    }
-
-    // MARK: - Media Content
-
-    private var mediaContent:
+    private var overflowContent:
         some View {
 
         VStack(
             spacing:
-                9
+                8
         ) {
+
+            overflowNavigation
+
+            Group {
+
+                switch overflowMode {
+
+                case .clipboard:
+
+                    clipboardContent
+
+                case .battery:
+
+                    batteryContent
+                }
+            }
+            .transition(
+                .opacity
+            )
+        }
+    }
+
+    private var overflowNavigation:
+        some View {
+
+        HStack(
+            spacing:
+                6
+        ) {
+
+            overflowButton(
+                mode:
+                    .clipboard,
+                title:
+                    "Clipboard",
+                icon:
+                    "clipboard"
+            )
+
+            overflowButton(
+                mode:
+                    .battery,
+                title:
+                    "Batteria",
+                icon:
+                    batteryMonitor.systemImage
+            )
+        }
+        .padding(
+            .horizontal,
+            18
+        )
+    }
+
+    private func overflowButton(
+        mode newMode:
+            OverflowMode,
+        title:
+            String,
+        icon:
+            String
+    ) -> some View {
+
+        let selected =
+            overflowMode == newMode
+
+        return Button {
+
+            cancelScheduledClose()
+
+            withAnimation(
+                .spring(
+                    response:
+                        0.27,
+                    dampingFraction:
+                        0.86
+                )
+            ) {
+
+                overflowMode =
+                    newMode
+            }
+
+            if newMode == .battery {
+
+                batteryMonitor
+                    .refresh()
+            }
+
+        } label: {
 
             HStack(
                 spacing:
-                    12
+                    6
             ) {
 
-                artworkView
-
-                mediaInformation
-
-                Spacer(
-                    minLength:
-                        8
+                Image(
+                    systemName:
+                        icon
                 )
 
-                controlsView
+                Text(
+                    title
+                )
             }
-
-            seekSection
+            .font(
+                .system(
+                    size:
+                        10,
+                    weight:
+                        .semibold
+                )
+            )
+            .foregroundStyle(
+                selected
+                ? .white
+                : .secondary
+            )
+            .frame(
+                maxWidth:
+                    .infinity
+            )
+            .frame(
+                height:
+                    28
+            )
+            .background(
+                Color.white
+                    .opacity(
+                        selected
+                        ? 0.13
+                        : 0.04
+                    )
+            )
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius:
+                        8,
+                    style:
+                        .continuous
+                )
+            )
         }
         .buttonStyle(
             .plain
         )
+    }
+
+    // MARK: - Battery
+
+    private var batteryContent:
+        some View {
+
+        VStack(
+            spacing:
+                12
+        ) {
+
+            if batteryMonitor
+                .isAvailable {
+
+                HStack(
+                    spacing:
+                        14
+                ) {
+
+                    ZStack {
+
+                        RoundedRectangle(
+                            cornerRadius:
+                                13,
+                            style:
+                                .continuous
+                        )
+                        .fill(
+                            Color.white
+                                .opacity(
+                                    0.09
+                                )
+                        )
+
+                        Image(
+                            systemName:
+                                batteryMonitor
+                                    .systemImage
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    22,
+                                weight:
+                                    .medium
+                            )
+                        )
+                    }
+                    .frame(
+                        width:
+                            50,
+                        height:
+                            50
+                    )
+
+                    VStack(
+                        alignment:
+                            .leading,
+                        spacing:
+                            3
+                    ) {
+
+                        Text(
+                            "\(batteryMonitor.percentage)%"
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    22,
+                                weight:
+                                    .semibold,
+                                design:
+                                    .rounded
+                            )
+                        )
+                        .monospacedDigit()
+
+                        Text(
+                            batteryMonitor
+                                .statusText
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    10,
+                                weight:
+                                    .medium
+                            )
+                        )
+                        .foregroundStyle(
+                            .secondary
+                        )
+
+                        if let time =
+                            batteryMonitor
+                                .remainingTimeText {
+
+                            Text(
+                                time
+                            )
+                            .font(
+                                .system(
+                                    size:
+                                        9
+                                )
+                            )
+                            .foregroundStyle(
+                                .secondary
+                            )
+                        }
+                    }
+
+                    Spacer()
+
+                    if batteryMonitor
+                        .isCharging {
+
+                        Image(
+                            systemName:
+                                "bolt.fill"
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    15,
+                                weight:
+                                    .semibold
+                            )
+                        )
+                        .foregroundStyle(
+                            .secondary
+                        )
+                    }
+                }
+
+                ProgressView(
+                    value:
+                        Double(
+                            batteryMonitor
+                                .percentage
+                        ),
+
+                    total:
+                        100
+                )
+                .progressViewStyle(
+                    .linear
+                )
+                .tint(
+                    .white
+                )
+
+            } else {
+
+                VStack(
+                    spacing:
+                        7
+                ) {
+
+                    Image(
+                        systemName:
+                            "battery.0percent"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                22
+                        )
+                    )
+                    .foregroundStyle(
+                        .secondary
+                    )
+
+                    Text(
+                        "Batteria non disponibile"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                12,
+                            weight:
+                                .medium
+                        )
+                    )
+                }
+                .frame(
+                    maxWidth:
+                        .infinity
+                )
+            }
+        }
         .foregroundStyle(
             .white
         )
@@ -782,1045 +995,8 @@ struct NotchView: View {
         )
         .padding(
             .bottom,
-            10
-        )
-    }
-
-    // MARK: - Media Information
-
-    private var mediaInformation:
-        some View {
-
-        VStack(
-            alignment:
-                .leading,
-            spacing:
-                4
-        ) {
-
-            HStack(
-                spacing:
-                    6
-            ) {
-
-                if let playerIcon =
-                    nowPlaying.playerIcon {
-
-                    Image(
-                        nsImage:
-                            playerIcon
-                    )
-                    .resizable()
-                    .scaledToFit()
-                    .frame(
-                        width:
-                            13,
-                        height:
-                            13
-                    )
-                }
-
-                Text(
-                    nowPlaying.title
-                )
-                .font(
-                    .system(
-                        size:
-                            13,
-                        weight:
-                            .semibold
-                    )
-                )
-                .lineLimit(
-                    1
-                )
-            }
-
-            Text(
-                nowPlaying.artist
-            )
-            .font(
-                .system(
-                    size:
-                        11
-                )
-            )
-            .foregroundStyle(
-                .secondary
-            )
-            .lineLimit(
-                1
-            )
-        }
-        .frame(
-            maxWidth:
-                160,
-            alignment:
-                .leading
-        )
-    }
-
-    // MARK: - Artwork
-
-    private var artworkView:
-        some View {
-
-        ZStack {
-
-            RoundedRectangle(
-                cornerRadius:
-                    10,
-                style:
-                    .continuous
-            )
-            .fill(
-                Color.white
-                    .opacity(
-                        0.07
-                    )
-            )
-
-            if let artwork =
-                nowPlaying.artwork {
-
-                Image(
-                    nsImage:
-                        artwork
-                )
-                .resizable()
-                .scaledToFill()
-
-            } else {
-
-                Image(
-                    systemName:
-                        "music.note"
-                )
-                .font(
-                    .system(
-                        size:
-                            18
-                    )
-                )
-                .foregroundStyle(
-                    .secondary
-                )
-            }
-        }
-        .frame(
-            width:
-                50,
-            height:
-                50
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius:
-                    10,
-                style:
-                    .continuous
-            )
-        )
-    }
-
-    // MARK: - Player Controls
-
-    private var controlsView:
-        some View {
-
-        HStack(
-            spacing:
-                10
-        ) {
-
-            playerButton(
-                icon:
-                    "backward.fill"
-            ) {
-
-                nowPlaying
-                    .previousTrack()
-            }
-
-            Button {
-
-                nowPlaying
-                    .togglePlayback()
-
-            } label: {
-
-                ZStack {
-
-                    Circle()
-                        .fill(
-                            Color.white
-                                .opacity(
-                                    0.14
-                                )
-                        )
-
-                    Image(
-                        systemName:
-                            nowPlaying.isPlaying
-                            ? "pause.fill"
-                            : "play.fill"
-                    )
-                    .font(
-                        .system(
-                            size:
-                                13,
-                            weight:
-                                .bold
-                        )
-                    )
-                    .contentTransition(
-                        .symbolEffect(
-                            .replace
-                        )
-                    )
-                }
-                .frame(
-                    width:
-                        34,
-                    height:
-                        34
-                )
-            }
-
-            playerButton(
-                icon:
-                    "forward.fill"
-            ) {
-
-                nowPlaying
-                    .nextTrack()
-            }
-        }
-    }
-
-    private func playerButton(
-        icon: String,
-        action: @escaping () -> Void
-    ) -> some View {
-
-        Button(
-            action:
-                action
-        ) {
-
-            Image(
-                systemName:
-                    icon
-            )
-            .font(
-                .system(
-                    size:
-                        11,
-                    weight:
-                        .semibold
-                )
-            )
-            .frame(
-                width:
-                    24,
-                height:
-                    24
-            )
-        }
-    }
-
-    // MARK: - Seek
-
-    private var seekSection:
-        some View {
-
-        Group {
-
-            if nowPlaying.duration > 0 {
-
-                TimelineView(
-                    .periodic(
-                        from:
-                            .now,
-                        by:
-                            0.25
-                    )
-                ) { _ in
-
-                    let current =
-                        nowPlaying
-                            .currentElapsedTime()
-
-                    let displayTime =
-                        isSeeking
-                        ? seekValue
-                        : current
-
-                    VStack(
-                        spacing:
-                            2
-                    ) {
-
-                        Slider(
-                            value:
-                                Binding(
-                                    get: {
-
-                                        isSeeking
-                                        ? seekValue
-                                        : current
-                                    },
-
-                                    set: { value in
-
-                                        seekValue =
-                                            value
-                                    }
-                                ),
-
-                            in:
-                                0...max(
-                                    nowPlaying.duration,
-                                    1
-                                ),
-
-                            onEditingChanged: { editing in
-
-                                if editing {
-
-                                    cancelScheduledClose()
-
-                                    isSeeking =
-                                        true
-
-                                    seekValue =
-                                        current
-
-                                } else {
-
-                                    isSeeking =
-                                        false
-
-                                    nowPlaying
-                                        .seek(
-                                            to:
-                                                seekValue
-                                        )
-                                }
-                            }
-                        )
-                        .controlSize(
-                            .mini
-                        )
-                        .tint(
-                            .white
-                        )
-
-                        HStack {
-
-                            Text(
-                                formatTime(
-                                    displayTime
-                                )
-                            )
-
-                            Spacer()
-
-                            Text(
-                                formatTime(
-                                    nowPlaying.duration
-                                )
-                            )
-                        }
-                        .font(
-                            .system(
-                                size:
-                                    9,
-                                weight:
-                                    .medium,
-                                design:
-                                    .rounded
-                            )
-                        )
-                        .foregroundStyle(
-                            .secondary
-                        )
-                        .monospacedDigit()
-                    }
-                }
-
-            } else {
-
-                Color.clear
-                    .frame(
-                        height:
-                            20
-                    )
-            }
-        }
-    }
-
-    // MARK: - Hardware Content
-
-    private func hardwareContent(
-        kind:
-            HardwareHUDMonitor.Kind
-    ) -> some View {
-
-        let presentation =
-            hardwareHUD.presentation
-
-        let value =
-            presentation?.value
-            ?? 0
-
-        let isVolume =
-            kind == .volume
-
-        let title =
-            isVolume
-            ? "Volume"
-            : "Luminosità"
-
-        let fallbackIcon =
-            isVolume
-            ? "speaker.wave.2.fill"
-            : "sun.max.fill"
-
-        let icon =
-            presentation?.systemImage
-            ?? fallbackIcon
-
-        return VStack(
-            spacing:
-                11
-        ) {
-
-            HStack(
-                spacing:
-                    12
-            ) {
-
-                hardwareMainButton(
-                    kind:
-                        kind,
-                    icon:
-                        icon
-                )
-
-                VStack(
-                    alignment:
-                        .leading,
-                    spacing:
-                        2
-                ) {
-
-                    Text(
-                        title
-                    )
-                    .font(
-                        .system(
-                            size:
-                                14,
-                            weight:
-                                .semibold
-                        )
-                    )
-
-                    Text(
-                        "\(Int((value * 100).rounded()))%"
-                    )
-                    .font(
-                        .system(
-                            size:
-                                11,
-                            weight:
-                                .medium
-                        )
-                    )
-                    .foregroundStyle(
-                        .secondary
-                    )
-                }
-
-                Spacer()
-            }
-
-            Slider(
-                value:
-                    Binding(
-                        get: {
-
-                            hardwareHUD
-                                .presentation?
-                                .value
-                            ?? 0
-                        },
-
-                        set: { newValue in
-
-                            hardwareHUD
-                                .setCurrentValue(
-                                    newValue
-                                )
-                        }
-                    ),
-
-                in:
-                    0...1,
-
-                onEditingChanged: { editing in
-
-                    handleHardwareSliderInteraction(
-                        editing
-                    )
-                }
-            )
-            .controlSize(
-                .small
-            )
-            .tint(
-                .white
-            )
-        }
-        .foregroundStyle(
-            .white
-        )
-        .padding(
-            .horizontal,
-            22
-        )
-        .padding(
-            .bottom,
             12
         )
-    }
-
-    private func hardwareMainButton(
-        kind:
-            HardwareHUDMonitor.Kind,
-        icon:
-            String
-    ) -> some View {
-
-        Button {
-
-            if kind == .volume {
-
-                hardwareHUD
-                    .toggleMute()
-            }
-
-        } label: {
-
-            ZStack {
-
-                RoundedRectangle(
-                    cornerRadius:
-                        12,
-                    style:
-                        .continuous
-                )
-                .fill(
-                    Color.white
-                        .opacity(
-                            0.10
-                        )
-                )
-
-                Image(
-                    systemName:
-                        icon
-                )
-                .font(
-                    .system(
-                        size:
-                            18,
-                        weight:
-                            .semibold
-                    )
-                )
-            }
-            .frame(
-                width:
-                    44,
-                height:
-                    44
-            )
-        }
-        .buttonStyle(
-            .plain
-        )
-        .disabled(
-            kind != .volume
-        )
-    }
-
-    // MARK: - Timer Content
-
-    private var timerContent:
-        some View {
-
-        VStack(
-            spacing:
-                10
-        ) {
-
-            HStack(
-                spacing:
-                    12
-            ) {
-
-                timerIcon
-
-                VStack(
-                    alignment:
-                        .leading,
-                    spacing:
-                        2
-                ) {
-
-                    Text(
-                        timerController.isFinished
-                        ? "Timer terminato"
-                        : "Timer"
-                    )
-                    .font(
-                        .system(
-                            size:
-                                14,
-                            weight:
-                                .semibold
-                        )
-                    )
-
-                    if timerController.totalSeconds > 0 {
-
-                        Text(
-                            timerController
-                                .formattedRemainingTime
-                        )
-                        .font(
-                            .system(
-                                size:
-                                    20,
-                                weight:
-                                    .semibold,
-                                design:
-                                    .rounded
-                            )
-                        )
-                        .monospacedDigit()
-
-                    } else {
-
-                        Text(
-                            "\(selectedTimerMinutes) min"
-                        )
-                        .font(
-                            .system(
-                                size:
-                                    17,
-                                weight:
-                                    .semibold,
-                                design:
-                                    .rounded
-                            )
-                        )
-                    }
-                }
-
-                Spacer()
-            }
-
-            if timerController.totalSeconds > 0 {
-
-                timerRunningControls
-
-            } else {
-
-                timerSetupControls
-            }
-        }
-        .foregroundStyle(
-            .white
-        )
-        .padding(
-            .horizontal,
-            22
-        )
-        .padding(
-            .bottom,
-            12
-        )
-    }
-
-    private var timerIcon:
-        some View {
-
-        ZStack {
-
-            RoundedRectangle(
-                cornerRadius:
-                    12,
-                style:
-                    .continuous
-            )
-            .fill(
-                Color.white
-                    .opacity(
-                        timerController.isFinished
-                        ? 0.18
-                        : 0.10
-                    )
-            )
-
-            Image(
-                systemName:
-                    timerController.isFinished
-                    ? "bell.fill"
-                    : "timer"
-            )
-            .font(
-                .system(
-                    size:
-                        19,
-                    weight:
-                        .semibold
-                )
-            )
-        }
-        .frame(
-            width:
-                44,
-            height:
-                44
-        )
-    }
-
-    // MARK: - Timer Setup
-
-    private var timerSetupControls:
-        some View {
-
-        VStack(
-            spacing:
-                8
-        ) {
-
-            HStack(
-                spacing:
-                    6
-            ) {
-
-                timerPresetButton(
-                    minutes:
-                        5
-                )
-
-                timerPresetButton(
-                    minutes:
-                        10
-                )
-
-                timerPresetButton(
-                    minutes:
-                        15
-                )
-
-                timerPresetButton(
-                    minutes:
-                        25
-                )
-            }
-
-            HStack(
-                spacing:
-                    10
-            ) {
-
-                Button {
-
-                    selectedTimerMinutes =
-                        max(
-                            selectedTimerMinutes - 1,
-                            1
-                        )
-
-                } label: {
-
-                    Image(
-                        systemName:
-                            "minus"
-                    )
-                    .frame(
-                        width:
-                            26,
-                        height:
-                            24
-                    )
-                    .background(
-                        Color.white
-                            .opacity(
-                                0.09
-                            )
-                    )
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius:
-                                7
-                        )
-                    )
-                }
-
-                Text(
-                    "\(selectedTimerMinutes) min"
-                )
-                .font(
-                    .system(
-                        size:
-                            12,
-                        weight:
-                            .semibold,
-                        design:
-                            .rounded
-                    )
-                )
-                .frame(
-                    minWidth:
-                        52
-                )
-
-                Button {
-
-                    selectedTimerMinutes =
-                        min(
-                            selectedTimerMinutes + 1,
-                            120
-                        )
-
-                } label: {
-
-                    Image(
-                        systemName:
-                            "plus"
-                    )
-                    .frame(
-                        width:
-                            26,
-                        height:
-                            24
-                    )
-                    .background(
-                        Color.white
-                            .opacity(
-                                0.09
-                            )
-                    )
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius:
-                                7
-                        )
-                    )
-                }
-
-                Spacer()
-
-                Button {
-
-                    timerController
-                        .start(
-                            minutes:
-                                selectedTimerMinutes
-                        )
-
-                } label: {
-
-                    Label(
-                        "Avvia",
-                        systemImage:
-                            "play.fill"
-                    )
-                    .font(
-                        .system(
-                            size:
-                                11,
-                            weight:
-                                .semibold
-                        )
-                    )
-                    .padding(
-                        .horizontal,
-                        12
-                    )
-                    .frame(
-                        height:
-                            26
-                    )
-                    .background(
-                        Color.white
-                            .opacity(
-                                0.16
-                            )
-                    )
-                    .clipShape(
-                        Capsule()
-                    )
-                }
-            }
-        }
-        .buttonStyle(
-            .plain
-        )
-    }
-
-    private func timerPresetButton(
-        minutes: Int
-    ) -> some View {
-
-        Button {
-
-            selectedTimerMinutes =
-                minutes
-
-        } label: {
-
-            Text(
-                "\(minutes)m"
-            )
-            .font(
-                .system(
-                    size:
-                        10,
-                    weight:
-                        .semibold
-                )
-            )
-            .frame(
-                maxWidth:
-                    .infinity
-            )
-            .frame(
-                height:
-                    24
-            )
-            .background(
-                Color.white
-                    .opacity(
-                        selectedTimerMinutes == minutes
-                        ? 0.18
-                        : 0.07
-                    )
-            )
-            .clipShape(
-                Capsule()
-            )
-        }
-        .buttonStyle(
-            .plain
-        )
-    }
-
-    // MARK: - Timer Running
-
-    private var timerRunningControls:
-        some View {
-
-        VStack(
-            spacing:
-                8
-        ) {
-
-            ProgressView(
-                value:
-                    timerController.progress,
-                total:
-                    1
-            )
-            .progressViewStyle(
-                .linear
-            )
-            .tint(
-                .white
-            )
-
-            HStack {
-
-                if timerController.isFinished {
-
-                    Button {
-
-                        timerController
-                            .reset()
-
-                    } label: {
-
-                        Label(
-                            "Nuovo timer",
-                            systemImage:
-                                "arrow.counterclockwise"
-                        )
-                    }
-
-                } else {
-
-                    Button {
-
-                        if timerController.isRunning {
-
-                            timerController
-                                .pause()
-
-                        } else {
-
-                            timerController
-                                .resume()
-                        }
-
-                    } label: {
-
-                        Label(
-                            timerController.isRunning
-                            ? "Pausa"
-                            : "Riprendi",
-
-                            systemImage:
-                                timerController.isRunning
-                                ? "pause.fill"
-                                : "play.fill"
-                        )
-                    }
-
-                    Spacer()
-
-                    Button {
-
-                        timerController
-                            .reset()
-
-                    } label: {
-
-                        Label(
-                            "Annulla",
-                            systemImage:
-                                "xmark"
-                        )
-                    }
-                }
-            }
-            .font(
-                .system(
-                    size:
-                        10,
-                    weight:
-                        .semibold
-                )
-            )
-            .buttonStyle(
-                .plain
-            )
-        }
     }
 
     // MARK: - Clipboard
@@ -1837,57 +1013,37 @@ struct NotchView: View {
 
                 HStack(
                     spacing:
-                        7
+                        6
                 ) {
 
                     Image(
                         systemName:
-                            "clipboard"
-                    )
-
-                    Text(
-                        "Clipboard"
+                            "pin.fill"
                     )
                     .font(
                         .system(
                             size:
-                                14,
+                                8
+                        )
+                    )
+
+                    Text(
+                        "Fissa"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                9,
                             weight:
                                 .semibold
                         )
                     )
                 }
+                .foregroundStyle(
+                    .secondary
+                )
 
                 Spacer()
-
-                Text(
-                    "Fissa"
-                )
-                .font(
-                    .system(
-                        size:
-                            9,
-                        weight:
-                            .semibold
-                    )
-                )
-                .foregroundStyle(
-                    .secondary
-                )
-
-                Image(
-                    systemName:
-                        "pin.fill"
-                )
-                .font(
-                    .system(
-                        size:
-                            9
-                    )
-                )
-                .foregroundStyle(
-                    .secondary
-                )
 
                 if !clipboardManager
                     .items
@@ -1936,6 +1092,10 @@ struct NotchView: View {
                     )
                 }
             }
+            .padding(
+                .horizontal,
+                18
+            )
 
             if clipboardManager
                 .items
@@ -1970,14 +1130,14 @@ struct NotchView: View {
                     maxHeight:
                         145
                 )
+                .padding(
+                    .horizontal,
+                    18
+                )
             }
         }
         .foregroundStyle(
             .white
-        )
-        .padding(
-            .horizontal,
-            18
         )
         .padding(
             .bottom,
@@ -2251,14 +1411,1140 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - Switch
+    // MARK: - Media Content
+
+    private var mediaContent:
+        some View {
+
+        VStack(
+            spacing:
+                9
+        ) {
+
+            HStack(
+                spacing:
+                    12
+            ) {
+
+                artworkView
+
+                mediaInformation
+
+                Spacer(
+                    minLength:
+                        8
+                )
+
+                controlsView
+            }
+
+            seekSection
+        }
+        .buttonStyle(
+            .plain
+        )
+        .foregroundStyle(
+            .white
+        )
+        .padding(
+            .horizontal,
+            20
+        )
+        .padding(
+            .bottom,
+            10
+        )
+    }
+
+    private var mediaInformation:
+        some View {
+
+        VStack(
+            alignment:
+                .leading,
+            spacing:
+                4
+        ) {
+
+            HStack(
+                spacing:
+                    6
+            ) {
+
+                if let playerIcon =
+                    nowPlaying.playerIcon {
+
+                    Image(
+                        nsImage:
+                            playerIcon
+                    )
+                    .resizable()
+                    .scaledToFit()
+                    .frame(
+                        width:
+                            13,
+                        height:
+                            13
+                    )
+                }
+
+                Text(
+                    nowPlaying.title
+                )
+                .font(
+                    .system(
+                        size:
+                            13,
+                        weight:
+                            .semibold
+                    )
+                )
+                .lineLimit(
+                    1
+                )
+            }
+
+            Text(
+                nowPlaying.artist
+            )
+            .font(
+                .system(
+                    size:
+                        11
+                )
+            )
+            .foregroundStyle(
+                .secondary
+            )
+            .lineLimit(
+                1
+            )
+        }
+        .frame(
+            maxWidth:
+                160,
+            alignment:
+                .leading
+        )
+    }
+
+    private var artworkView:
+        some View {
+
+        ZStack {
+
+            RoundedRectangle(
+                cornerRadius:
+                    10,
+                style:
+                    .continuous
+            )
+            .fill(
+                Color.white
+                    .opacity(
+                        0.07
+                    )
+            )
+
+            if let artwork =
+                nowPlaying.artwork {
+
+                Image(
+                    nsImage:
+                        artwork
+                )
+                .resizable()
+                .scaledToFill()
+
+            } else {
+
+                Image(
+                    systemName:
+                        "music.note"
+                )
+                .font(
+                    .system(
+                        size:
+                            18
+                    )
+                )
+                .foregroundStyle(
+                    .secondary
+                )
+            }
+        }
+        .frame(
+            width:
+                50,
+            height:
+                50
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius:
+                    10,
+                style:
+                    .continuous
+            )
+        )
+    }
+
+    private var controlsView:
+        some View {
+
+        HStack(
+            spacing:
+                10
+        ) {
+
+            playerButton(
+                icon:
+                    "backward.fill"
+            ) {
+
+                nowPlaying
+                    .previousTrack()
+            }
+
+            Button {
+
+                nowPlaying
+                    .togglePlayback()
+
+            } label: {
+
+                ZStack {
+
+                    Circle()
+                        .fill(
+                            Color.white
+                                .opacity(
+                                    0.14
+                                )
+                        )
+
+                    Image(
+                        systemName:
+                            nowPlaying.isPlaying
+                            ? "pause.fill"
+                            : "play.fill"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                13,
+                            weight:
+                                .bold
+                        )
+                    )
+                }
+                .frame(
+                    width:
+                        34,
+                    height:
+                        34
+                )
+            }
+
+            playerButton(
+                icon:
+                    "forward.fill"
+            ) {
+
+                nowPlaying
+                    .nextTrack()
+            }
+        }
+    }
+
+    private func playerButton(
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+
+        Button(
+            action:
+                action
+        ) {
+
+            Image(
+                systemName:
+                    icon
+            )
+            .font(
+                .system(
+                    size:
+                        11,
+                    weight:
+                        .semibold
+                )
+            )
+            .frame(
+                width:
+                    24,
+                height:
+                    24
+            )
+        }
+    }
+
+    private var seekSection:
+        some View {
+
+        Group {
+
+            if nowPlaying.duration > 0 {
+
+                TimelineView(
+                    .periodic(
+                        from:
+                            .now,
+                        by:
+                            0.25
+                    )
+                ) { _ in
+
+                    let current =
+                        nowPlaying
+                            .currentElapsedTime()
+
+                    let displayTime =
+                        isSeeking
+                        ? seekValue
+                        : current
+
+                    VStack(
+                        spacing:
+                            2
+                    ) {
+
+                        Slider(
+                            value:
+                                Binding(
+                                    get: {
+
+                                        isSeeking
+                                        ? seekValue
+                                        : current
+                                    },
+
+                                    set: { value in
+
+                                        seekValue =
+                                            value
+                                    }
+                                ),
+
+                            in:
+                                0...max(
+                                    nowPlaying.duration,
+                                    1
+                                ),
+
+                            onEditingChanged: { editing in
+
+                                if editing {
+
+                                    cancelScheduledClose()
+
+                                    isSeeking =
+                                        true
+
+                                    seekValue =
+                                        current
+
+                                } else {
+
+                                    isSeeking =
+                                        false
+
+                                    nowPlaying
+                                        .seek(
+                                            to:
+                                                seekValue
+                                        )
+                                }
+                            }
+                        )
+                        .controlSize(
+                            .mini
+                        )
+                        .tint(
+                            .white
+                        )
+
+                        HStack {
+
+                            Text(
+                                formatTime(
+                                    displayTime
+                                )
+                            )
+
+                            Spacer()
+
+                            Text(
+                                formatTime(
+                                    nowPlaying.duration
+                                )
+                            )
+                        }
+                        .font(
+                            .system(
+                                size:
+                                    9,
+                                weight:
+                                    .medium,
+                                design:
+                                    .rounded
+                            )
+                        )
+                        .foregroundStyle(
+                            .secondary
+                        )
+                        .monospacedDigit()
+                    }
+                }
+
+            } else {
+
+                Color.clear
+                    .frame(
+                        height:
+                            20
+                    )
+            }
+        }
+    }
+
+    // MARK: - Hardware
+
+    private func hardwareContent(
+        kind:
+            HardwareHUDMonitor.Kind
+    ) -> some View {
+
+        let presentation =
+            hardwareHUD.presentation
+
+        let value =
+            presentation?.value
+            ?? 0
+
+        let isVolume =
+            kind == .volume
+
+        let title =
+            isVolume
+            ? "Volume"
+            : "Luminosità"
+
+        let fallbackIcon =
+            isVolume
+            ? "speaker.wave.2.fill"
+            : "sun.max.fill"
+
+        let icon =
+            presentation?.systemImage
+            ?? fallbackIcon
+
+        return VStack(
+            spacing:
+                11
+        ) {
+
+            HStack(
+                spacing:
+                    12
+            ) {
+
+                hardwareMainButton(
+                    kind:
+                        kind,
+                    icon:
+                        icon
+                )
+
+                VStack(
+                    alignment:
+                        .leading,
+                    spacing:
+                        2
+                ) {
+
+                    Text(
+                        title
+                    )
+                    .font(
+                        .system(
+                            size:
+                                14,
+                            weight:
+                                .semibold
+                        )
+                    )
+
+                    Text(
+                        "\(Int((value * 100).rounded()))%"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                11,
+                            weight:
+                                .medium
+                        )
+                    )
+                    .foregroundStyle(
+                        .secondary
+                    )
+                }
+
+                Spacer()
+            }
+
+            Slider(
+                value:
+                    Binding(
+                        get: {
+
+                            hardwareHUD
+                                .presentation?
+                                .value
+                            ?? 0
+                        },
+
+                        set: { newValue in
+
+                            hardwareHUD
+                                .setCurrentValue(
+                                    newValue
+                                )
+                        }
+                    ),
+
+                in:
+                    0...1,
+
+                onEditingChanged: { editing in
+
+                    handleHardwareSliderInteraction(
+                        editing
+                    )
+                }
+            )
+            .controlSize(
+                .small
+            )
+            .tint(
+                .white
+            )
+        }
+        .foregroundStyle(
+            .white
+        )
+        .padding(
+            .horizontal,
+            22
+        )
+        .padding(
+            .bottom,
+            12
+        )
+    }
+
+    private func hardwareMainButton(
+        kind:
+            HardwareHUDMonitor.Kind,
+        icon:
+            String
+    ) -> some View {
+
+        Button {
+
+            if kind == .volume {
+
+                hardwareHUD
+                    .toggleMute()
+            }
+
+        } label: {
+
+            ZStack {
+
+                RoundedRectangle(
+                    cornerRadius:
+                        12,
+                    style:
+                        .continuous
+                )
+                .fill(
+                    Color.white
+                        .opacity(
+                            0.10
+                        )
+                )
+
+                Image(
+                    systemName:
+                        icon
+                )
+                .font(
+                    .system(
+                        size:
+                            18,
+                        weight:
+                            .semibold
+                    )
+                )
+            }
+            .frame(
+                width:
+                    44,
+                height:
+                    44
+            )
+        }
+        .buttonStyle(
+            .plain
+        )
+        .disabled(
+            kind != .volume
+        )
+    }
+
+    // MARK: - Timer
+
+    private var timerContent:
+        some View {
+
+        VStack(
+            spacing:
+                10
+        ) {
+
+            HStack(
+                spacing:
+                    12
+            ) {
+
+                timerIcon
+
+                VStack(
+                    alignment:
+                        .leading,
+                    spacing:
+                        2
+                ) {
+
+                    Text(
+                        timerController.isFinished
+                        ? "Timer terminato"
+                        : "Timer"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                14,
+                            weight:
+                                .semibold
+                        )
+                    )
+
+                    if timerController.totalSeconds > 0 {
+
+                        Text(
+                            timerController
+                                .formattedRemainingTime
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    20,
+                                weight:
+                                    .semibold,
+                                design:
+                                    .rounded
+                            )
+                        )
+                        .monospacedDigit()
+
+                    } else {
+
+                        Text(
+                            "\(selectedTimerMinutes) min"
+                        )
+                        .font(
+                            .system(
+                                size:
+                                    17,
+                                weight:
+                                    .semibold,
+                                design:
+                                    .rounded
+                            )
+                        )
+                    }
+                }
+
+                Spacer()
+            }
+
+            if timerController.totalSeconds > 0 {
+
+                timerRunningControls
+
+            } else {
+
+                timerSetupControls
+            }
+        }
+        .foregroundStyle(
+            .white
+        )
+        .padding(
+            .horizontal,
+            22
+        )
+        .padding(
+            .bottom,
+            12
+        )
+    }
+
+    private var timerIcon:
+        some View {
+
+        ZStack {
+
+            RoundedRectangle(
+                cornerRadius:
+                    12,
+                style:
+                    .continuous
+            )
+            .fill(
+                Color.white
+                    .opacity(
+                        timerController.isFinished
+                        ? 0.18
+                        : 0.10
+                    )
+            )
+
+            Image(
+                systemName:
+                    timerController.isFinished
+                    ? "bell.fill"
+                    : "timer"
+            )
+            .font(
+                .system(
+                    size:
+                        19,
+                    weight:
+                        .semibold
+                )
+            )
+        }
+        .frame(
+            width:
+                44,
+            height:
+                44
+        )
+    }
+
+    private var timerSetupControls:
+        some View {
+
+        VStack(
+            spacing:
+                8
+        ) {
+
+            HStack(
+                spacing:
+                    6
+            ) {
+
+                timerPresetButton(
+                    minutes:
+                        5
+                )
+
+                timerPresetButton(
+                    minutes:
+                        10
+                )
+
+                timerPresetButton(
+                    minutes:
+                        15
+                )
+
+                timerPresetButton(
+                    minutes:
+                        25
+                )
+            }
+
+            HStack(
+                spacing:
+                    10
+            ) {
+
+                Button {
+
+                    selectedTimerMinutes =
+                        max(
+                            selectedTimerMinutes - 1,
+                            1
+                        )
+
+                } label: {
+
+                    Image(
+                        systemName:
+                            "minus"
+                    )
+                    .frame(
+                        width:
+                            26,
+                        height:
+                            24
+                    )
+                    .background(
+                        Color.white
+                            .opacity(
+                                0.09
+                            )
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius:
+                                7
+                        )
+                    )
+                }
+
+                Text(
+                    "\(selectedTimerMinutes) min"
+                )
+                .font(
+                    .system(
+                        size:
+                            12,
+                        weight:
+                            .semibold,
+                        design:
+                            .rounded
+                    )
+                )
+                .frame(
+                    minWidth:
+                        52
+                )
+
+                Button {
+
+                    selectedTimerMinutes =
+                        min(
+                            selectedTimerMinutes + 1,
+                            120
+                        )
+
+                } label: {
+
+                    Image(
+                        systemName:
+                            "plus"
+                    )
+                    .frame(
+                        width:
+                            26,
+                        height:
+                            24
+                    )
+                    .background(
+                        Color.white
+                            .opacity(
+                                0.09
+                            )
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius:
+                                7
+                        )
+                    )
+                }
+
+                Spacer()
+
+                Button {
+
+                    timerController
+                        .start(
+                            minutes:
+                                selectedTimerMinutes
+                        )
+
+                } label: {
+
+                    Label(
+                        "Avvia",
+                        systemImage:
+                            "play.fill"
+                    )
+                    .font(
+                        .system(
+                            size:
+                                11,
+                            weight:
+                                .semibold
+                        )
+                    )
+                    .padding(
+                        .horizontal,
+                        12
+                    )
+                    .frame(
+                        height:
+                            26
+                    )
+                    .background(
+                        Color.white
+                            .opacity(
+                                0.16
+                            )
+                    )
+                    .clipShape(
+                        Capsule()
+                    )
+                }
+            }
+        }
+        .buttonStyle(
+            .plain
+        )
+    }
+
+    private func timerPresetButton(
+        minutes:
+            Int
+    ) -> some View {
+
+        Button {
+
+            selectedTimerMinutes =
+                minutes
+
+        } label: {
+
+            Text(
+                "\(minutes)m"
+            )
+            .font(
+                .system(
+                    size:
+                        10,
+                    weight:
+                        .semibold
+                )
+            )
+            .frame(
+                maxWidth:
+                    .infinity
+            )
+            .frame(
+                height:
+                    24
+            )
+            .background(
+                Color.white
+                    .opacity(
+                        selectedTimerMinutes == minutes
+                        ? 0.18
+                        : 0.07
+                    )
+            )
+            .clipShape(
+                Capsule()
+            )
+        }
+        .buttonStyle(
+            .plain
+        )
+    }
+
+    private var timerRunningControls:
+        some View {
+
+        VStack(
+            spacing:
+                8
+        ) {
+
+            ProgressView(
+                value:
+                    timerController.progress,
+                total:
+                    1
+            )
+            .progressViewStyle(
+                .linear
+            )
+            .tint(
+                .white
+            )
+
+            HStack {
+
+                if timerController.isFinished {
+
+                    Button {
+
+                        timerController
+                            .reset()
+
+                    } label: {
+
+                        Label(
+                            "Nuovo timer",
+                            systemImage:
+                                "arrow.counterclockwise"
+                        )
+                    }
+
+                } else {
+
+                    Button {
+
+                        if timerController.isRunning {
+
+                            timerController
+                                .pause()
+
+                        } else {
+
+                            timerController
+                                .resume()
+                        }
+
+                    } label: {
+
+                        Label(
+                            timerController.isRunning
+                            ? "Pausa"
+                            : "Riprendi",
+
+                            systemImage:
+                                timerController.isRunning
+                                ? "pause.fill"
+                                : "play.fill"
+                        )
+                    }
+
+                    Spacer()
+
+                    Button {
+
+                        timerController
+                            .reset()
+
+                    } label: {
+
+                        Label(
+                            "Annulla",
+                            systemImage:
+                                "xmark"
+                        )
+                    }
+                }
+            }
+            .font(
+                .system(
+                    size:
+                        10,
+                    weight:
+                        .semibold
+                )
+            )
+            .buttonStyle(
+                .plain
+            )
+        }
+    }
+
+    // MARK: - Mode Selection
+
+    private func selectMode(
+        _ newMode:
+            ContentMode
+    ) {
+
+        cancelScheduledClose()
+
+        hardwareRevealToken =
+            UUID()
+
+        switch newMode {
+
+        case .media:
+
+            isManualHardwareMode =
+                false
+
+            hardwareHUD.clear()
+
+        case .volume:
+
+            isManualHardwareMode =
+                true
+
+            hardwareHUD
+                .showVolume()
+
+        case .brightness:
+
+            isManualHardwareMode =
+                true
+
+            hardwareHUD
+                .showBrightness()
+
+        case .timer:
+
+            isManualHardwareMode =
+                false
+
+            hardwareHUD.clear()
+
+        case .more:
+
+            isManualHardwareMode =
+                false
+
+            hardwareHUD.clear()
+        }
+
+        switchMode(
+            to:
+                newMode
+        )
+
+        openNotch()
+    }
 
     private func switchMode(
         to newMode:
             ContentMode
     ) {
 
-        guard mode != newMode else {
+        guard
+            mode != newMode
+        else {
             return
         }
 
@@ -2276,10 +2562,60 @@ struct NotchView: View {
         }
     }
 
+    // MARK: - Hover
+
+    private func handleHover(
+        _ hovering:
+            Bool
+    ) {
+
+        isHovering =
+            hovering
+
+        if hovering {
+
+            cancelScheduledClose()
+
+            openNotch()
+
+            return
+        }
+
+        /*
+         SOLO Clipboard resta aperta.
+         Batteria usa il comportamento normale.
+         */
+
+        if isClipboardPinned {
+
+            cancelScheduledClose()
+
+            return
+        }
+
+        guard
+            !isSeeking,
+            !isHardwareInteracting
+        else {
+            return
+        }
+
+        isManualHardwareMode =
+            false
+
+        hardwareHUD.clear()
+
+        scheduleClose(
+            after:
+                0.35
+        )
+    }
+
     // MARK: - Hardware Slider
 
     private func handleHardwareSliderInteraction(
-        _ editing: Bool
+        _ editing:
+            Bool
     ) {
 
         isHardwareInteracting =
@@ -2303,17 +2639,13 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - Hardware Auto Reveal
+    // MARK: - Hardware Reveal
 
     private func handleHardwareHUDChange() {
 
-        /*
-         Se Clipboard è pinned,
-         non permettiamo ai tasti volume/
-         luminosità di cambiare schermata.
-         */
-
-        guard !isClipboardPinned else {
+        guard
+            !isClipboardPinned
+        else {
             return
         }
 
@@ -2400,7 +2732,7 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - Timer Finished
+    // MARK: - Timer Finish
 
     private func handleTimerFinished() {
 
@@ -2410,12 +2742,9 @@ struct NotchView: View {
             return
         }
 
-        /*
-         Clipboard pinned ha priorità.
-         Non interrompiamo l'utente.
-         */
-
-        guard !isClipboardPinned else {
+        guard
+            !isClipboardPinned
+        else {
             return
         }
 
@@ -2460,16 +2789,15 @@ struct NotchView: View {
             MediaState
     ) {
 
-        /*
-         Anche il cambio traccia non deve
-         interrompere una Clipboard pinned.
-         */
-
-        guard !isClipboardPinned else {
+        guard
+            !isClipboardPinned
+        else {
             return
         }
 
-        guard hasValidMedia else {
+        guard
+            hasValidMedia
+        else {
             return
         }
 
@@ -2501,7 +2829,9 @@ struct NotchView: View {
 
     private func revealTemporarily() {
 
-        guard !isClipboardPinned else {
+        guard
+            !isClipboardPinned
+        else {
             return
         }
 
@@ -2545,20 +2875,16 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - Close
+    // MARK: - Close Scheduling
 
     private func scheduleClose(
         after delay:
             TimeInterval
     ) {
 
-        /*
-         Clipboard è l'unica modalità
-         che blocca completamente
-         l'auto-close.
-         */
-
-        guard !isClipboardPinned else {
+        guard
+            !isClipboardPinned
+        else {
             return
         }
 
@@ -2642,7 +2968,9 @@ struct NotchView: View {
                 .now() + 0.07
         ) {
 
-            guard expanded else {
+            guard
+                expanded
+            else {
                 return
             }
 
@@ -2663,16 +2991,9 @@ struct NotchView: View {
 
     private func closeNotch() {
 
-        /*
-         Finché siamo in Clipboard,
-         closeNotch non ha effetto.
-
-         Appena l'utente cambia tab,
-         mode != .more e il comportamento
-         torna normale.
-         */
-
-        guard !isClipboardPinned else {
+        guard
+            !isClipboardPinned
+        else {
             return
         }
 
@@ -2684,7 +3005,9 @@ struct NotchView: View {
             return
         }
 
-        guard expanded else {
+        guard
+            expanded
+        else {
             return
         }
 

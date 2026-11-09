@@ -1,9 +1,59 @@
 import Foundation
 
+// MARK: - Global Bridge Gate
+
+private actor DynamicNotchMediaBridgeGate {
+
+    static let shared =
+        DynamicNotchMediaBridgeGate()
+
+    private var isBusy =
+        false
+
+    private var waiters:
+        [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+
+        if !isBusy {
+
+            isBusy =
+                true
+
+            return
+        }
+
+        await withCheckedContinuation {
+            continuation in
+
+            waiters.append(
+                continuation
+            )
+        }
+    }
+
+    func release() {
+
+        if waiters.isEmpty {
+
+            isBusy =
+                false
+
+            return
+        }
+
+        let continuation =
+            waiters.removeFirst()
+
+        continuation.resume()
+    }
+}
+
 @MainActor
 final class DynamicNotchMediaController: MediaController {
 
-    var onUpdate: ((MediaPlaybackSnapshot) -> Void)?
+    var onUpdate:
+        ((MediaPlaybackSnapshot) -> Void)?
 
     private var pollingTask:
         Task<Void, Never>?
@@ -35,7 +85,9 @@ final class DynamicNotchMediaController: MediaController {
 
     func start() {
 
-        guard pollingTask == nil else {
+        guard
+            pollingTask == nil
+        else {
             return
         }
 
@@ -75,6 +127,7 @@ final class DynamicNotchMediaController: MediaController {
                             action:
                                 "get"
                         ),
+                       !Task.isCancelled,
                        let snapshot =
                         self.parseMetadataSnapshot(
                             json
@@ -86,15 +139,6 @@ final class DynamicNotchMediaController: MediaController {
                                 binaryPath
                         )
                     }
-
-                    /*
-                     Metadata soltanto:
-                     il payload adesso è molto piccolo.
-
-                     Possiamo quindi fare polling
-                     più rapido senza trasportare
-                     artwork Base64 continuamente.
-                     */
 
                     let elapsed =
                         Date()
@@ -126,6 +170,9 @@ final class DynamicNotchMediaController: MediaController {
                         }
                     }
                 }
+
+                self.pollingTask =
+                    nil
             }
     }
 
@@ -144,13 +191,18 @@ final class DynamicNotchMediaController: MediaController {
 
         artworkTask =
             nil
+
+        onUpdate =
+            nil
     }
 
     // MARK: - Metadata Handling
 
     private func handleMetadataSnapshot(
-        _ incomingSnapshot: MediaPlaybackSnapshot,
-        frameworkPath: String
+        _ incomingSnapshot:
+            MediaPlaybackSnapshot,
+        frameworkPath:
+            String
     ) {
 
         let identity =
@@ -164,11 +216,6 @@ final class DynamicNotchMediaController: MediaController {
 
         var artworkData:
             Data?
-
-        /*
-         Se abbiamo già la copertina della
-         stessa traccia, la riutilizziamo.
-         */
 
         if cachedArtworkIdentity
             == identity {
@@ -186,28 +233,20 @@ final class DynamicNotchMediaController: MediaController {
             MediaPlaybackSnapshot(
                 title:
                     incomingSnapshot.title,
-
                 artist:
                     incomingSnapshot.artist,
-
                 album:
                     incomingSnapshot.album,
-
                 artworkData:
                     artworkData,
-
                 bundleIdentifier:
                     incomingSnapshot.bundleIdentifier,
-
                 isPlaying:
                     incomingSnapshot.isPlaying,
-
                 duration:
                     incomingSnapshot.duration,
-
                 elapsedTime:
                     incomingSnapshot.elapsedTime,
-
                 timestamp:
                     incomingSnapshot.timestamp
             )
@@ -218,18 +257,9 @@ final class DynamicNotchMediaController: MediaController {
         latestTrackIdentity =
             identity
 
-        /*
-         Metadata vengono pubblicati SUBITO.
-
-         La UI quindi non aspetta più
-         che venga caricata la copertina.
-         */
-
         onUpdate?(
             snapshot
         )
-
-        // MARK: Artwork fetch
 
         guard trackChanged else {
             return
@@ -256,13 +286,6 @@ final class DynamicNotchMediaController: MediaController {
             return
         }
 
-        /*
-         È cambiata traccia.
-
-         Non vogliamo mai mostrare la
-         copertina del brano precedente.
-         */
-
         cachedArtworkData =
             nil
 
@@ -283,8 +306,10 @@ final class DynamicNotchMediaController: MediaController {
     // MARK: - Artwork Fetch
 
     private func fetchArtwork(
-        expectedIdentity: String,
-        frameworkPath: String
+        expectedIdentity:
+            String,
+        frameworkPath:
+            String
     ) {
 
         artworkTask =
@@ -318,15 +343,9 @@ final class DynamicNotchMediaController: MediaController {
                     return
                 }
 
-                /*
-                 Verifica 1:
-                 l'artwork restituito deve essere
-                 della traccia che avevamo richiesto.
-                 */
-
                 guard
                     artworkResult.identity
-                        == expectedIdentity
+                    == expectedIdentity
                 else {
 
                     print(
@@ -336,17 +355,10 @@ final class DynamicNotchMediaController: MediaController {
                     return
                 }
 
-                /*
-                 Verifica 2:
-                 nel frattempo la UI deve essere
-                 ancora sulla stessa traccia.
-                 */
-
                 guard
                     self.latestTrackIdentity
-                        == expectedIdentity
+                    == expectedIdentity
                 else {
-
                     return
                 }
 
@@ -363,28 +375,20 @@ final class DynamicNotchMediaController: MediaController {
                     MediaPlaybackSnapshot(
                         title:
                             current.title,
-
                         artist:
                             current.artist,
-
                         album:
                             current.album,
-
                         artworkData:
                             artworkResult.data,
-
                         bundleIdentifier:
                             current.bundleIdentifier,
-
                         isPlaying:
                             current.isPlaying,
-
                         duration:
                             current.duration,
-
                         elapsedTime:
                             current.elapsedTime,
-
                         timestamp:
                             current.timestamp
                     )
@@ -395,6 +399,9 @@ final class DynamicNotchMediaController: MediaController {
                 self.onUpdate?(
                     updated
                 )
+
+                self.artworkTask =
+                    nil
             }
     }
 
@@ -431,29 +438,25 @@ final class DynamicNotchMediaController: MediaController {
             let title =
                 payload[
                     "title"
-                ]
-                as? String
+                ] as? String
                 ?? "Nessun brano"
 
             let artist =
                 payload[
                     "artist"
-                ]
-                as? String
+                ] as? String
                 ?? ""
 
             let album =
                 payload[
                     "album"
-                ]
-                as? String
+                ] as? String
                 ?? ""
 
             let bundleIdentifier =
                 payload[
                     "bundleIdentifier"
-                ]
-                as? String
+                ] as? String
                 ?? ""
 
             let duration =
@@ -483,8 +486,7 @@ final class DynamicNotchMediaController: MediaController {
             if let value =
                 payload[
                     "timestamp"
-                ]
-                as? NSNumber {
+                ] as? NSNumber {
 
                 timestamp =
                     Date(
@@ -501,28 +503,20 @@ final class DynamicNotchMediaController: MediaController {
             return MediaPlaybackSnapshot(
                 title:
                     title,
-
                 artist:
                     artist,
-
                 album:
                     album,
-
                 artworkData:
                     nil,
-
                 bundleIdentifier:
                     bundleIdentifier,
-
                 isPlaying:
                     isPlaying,
-
                 duration:
                     duration,
-
                 elapsedTime:
                     elapsedTime,
-
                 timestamp:
                     timestamp
             )
@@ -581,22 +575,19 @@ final class DynamicNotchMediaController: MediaController {
             let title =
                 payload[
                     "title"
-                ]
-                as? String
+                ] as? String
                 ?? ""
 
             let artist =
                 payload[
                     "artist"
-                ]
-                as? String
+                ] as? String
                 ?? ""
 
             let album =
                 payload[
                     "album"
-                ]
-                as? String
+                ] as? String
                 ?? ""
 
             let duration =
@@ -610,15 +601,13 @@ final class DynamicNotchMediaController: MediaController {
                 let base64 =
                     payload[
                         "artworkData"
-                    ]
-                    as? String,
+                    ] as? String,
                 let artworkData =
                     Data(
                         base64Encoded:
                             base64
                     )
             else {
-
                 return nil
             }
 
@@ -792,211 +781,225 @@ final class DynamicNotchMediaController: MediaController {
         value: Double? = nil
     ) async -> String? {
 
-        await Task.detached(
-            priority:
-                .userInitiated
-        ) {
+        await DynamicNotchMediaBridgeGate
+            .shared
+            .acquire()
 
-            let perlScript = #"""
-            use strict;
-            use warnings;
-            use DynaLoader;
+        /*
+         Qui specifichiamo ESPLICITAMENTE
+         String? sia per result sia per la
+         closure del Task.detached.
 
-            my $library = shift @ARGV;
-            my $action  = shift @ARGV;
-            my $value   = shift @ARGV;
+         Questo elimina:
+         "'nil' requires a contextual type".
+         */
 
-            my $libref =
-                DynaLoader::dl_load_file(
-                    $library,
-                    0
-                );
+        let result: String? =
+            await Task.detached(
+                priority:
+                    .userInitiated
+            ) { () -> String? in
 
-            if (!$libref) {
-                die DynaLoader::dl_error();
-            }
+                let perlScript = #"""
+                use strict;
+                use warnings;
+                use DynaLoader;
 
-            my $symbol =
-                DynaLoader::dl_find_symbol(
-                    $libref,
-                    "boot_DynamicNotchMedia"
-                );
+                my $library = shift @ARGV;
+                my $action  = shift @ARGV;
+                my $value   = shift @ARGV;
 
-            if (!$symbol) {
-                die DynaLoader::dl_error();
-            }
+                my $libref =
+                    DynaLoader::dl_load_file(
+                        $library,
+                        0
+                    );
 
-            my $bootstrap =
-                DynaLoader::dl_install_xsub(
-                    "DynamicNotchMedia::bootstrap",
-                    $symbol,
-                    $library
-                );
-
-            $bootstrap->();
-
-            if ($action eq "get") {
-
-                my $json =
-                    DynamicNotchMedia::get();
-
-                if (defined $json) {
-                    print $json;
+                if (!$libref) {
+                    die DynaLoader::dl_error();
                 }
 
-            } elsif ($action eq "artwork") {
+                my $symbol =
+                    DynaLoader::dl_find_symbol(
+                        $libref,
+                        "boot_DynamicNotchMedia"
+                    );
 
-                my $json =
-                    DynamicNotchMedia::getArtwork();
-
-                if (defined $json) {
-                    print $json;
+                if (!$symbol) {
+                    die DynaLoader::dl_error();
                 }
 
-            } elsif ($action eq "seek") {
+                my $bootstrap =
+                    DynaLoader::dl_install_xsub(
+                        "DynamicNotchMedia::bootstrap",
+                        $symbol,
+                        $library
+                    );
 
-                die "Missing seek value"
-                    unless defined $value;
+                $bootstrap->();
 
-                print DynamicNotchMedia::seek(
-                    $value
-                );
+                if ($action eq "get") {
 
-            } else {
+                    my $json =
+                        DynamicNotchMedia::get();
 
-                die "Unknown action: $action";
-            }
-            """#
+                    if (defined $json) {
+                        print $json;
+                    }
 
-            let process =
-                Process()
+                } elsif ($action eq "artwork") {
 
-            let stdout =
-                Pipe()
+                    my $json =
+                        DynamicNotchMedia::getArtwork();
 
-            let stderr =
-                Pipe()
+                    if (defined $json) {
+                        print $json;
+                    }
 
-            process.executableURL =
-                URL(
-                    fileURLWithPath:
-                        "/usr/bin/perl"
-                )
+                } elsif ($action eq "seek") {
 
-            var arguments = [
-                "-e",
-                perlScript,
-                frameworkPath,
-                action
-            ]
+                    die "Missing seek value"
+                        unless defined $value;
 
-            if let value {
+                    print DynamicNotchMedia::seek(
+                        $value
+                    );
 
-                arguments.append(
-                    String(
-                        value
+                } else {
+
+                    die "Unknown action: $action";
+                }
+                """#
+
+                let process =
+                    Process()
+
+                let stdout =
+                    Pipe()
+
+                let stderr =
+                    Pipe()
+
+                process.executableURL =
+                    URL(
+                        fileURLWithPath:
+                            "/usr/bin/perl"
                     )
-                )
-            }
 
-            process.arguments =
-                arguments
+                var arguments = [
+                    "-e",
+                    perlScript,
+                    frameworkPath,
+                    action
+                ]
 
-            process.standardOutput =
-                stdout
+                if let value {
 
-            process.standardError =
-                stderr
+                    arguments.append(
+                        String(
+                            value
+                        )
+                    )
+                }
 
-            do {
+                process.arguments =
+                    arguments
 
-                try process.run()
+                process.standardOutput =
+                    stdout
 
-            } catch {
+                process.standardError =
+                    stderr
 
-                print(
-                    "❌ Perl start:",
-                    error
-                )
+                do {
 
-                return nil
-            }
+                    try process.run()
 
-            /*
-             Metadata sono piccoli.
-
-             Artwork può essere grande,
-             ma viene richiesto soltanto
-             al cambio traccia.
-
-             Continuiamo comunque a drenare
-             stdout prima di waitUntilExit().
-             */
-
-            let outputData =
-                stdout
-                    .fileHandleForReading
-                    .readDataToEndOfFile()
-
-            let errorData =
-                stderr
-                    .fileHandleForReading
-                    .readDataToEndOfFile()
-
-            process
-                .waitUntilExit()
-
-            if process.terminationStatus != 0 {
-
-                if let message =
-                    String(
-                        data:
-                            errorData,
-                        encoding:
-                            .utf8
-                    ),
-                   !message.isEmpty {
+                } catch {
 
                     print(
-                        "❌ Perl bridge:",
-                        message
+                        "❌ Perl start:",
+                        error
                     )
+
+                    return nil
                 }
 
-                return nil
+                let outputData =
+                    stdout
+                        .fileHandleForReading
+                        .readDataToEndOfFile()
+
+                let errorData =
+                    stderr
+                        .fileHandleForReading
+                        .readDataToEndOfFile()
+
+                process
+                    .waitUntilExit()
+
+                if process.terminationStatus
+                    != 0 {
+
+                    if let message =
+                        String(
+                            data:
+                                errorData,
+                            encoding:
+                                .utf8
+                        ),
+                       !message.isEmpty {
+
+                        print(
+                            "❌ Perl bridge:",
+                            message
+                        )
+                    }
+
+                    return nil
+                }
+
+                guard
+                    let output =
+                        String(
+                            data:
+                                outputData,
+                            encoding:
+                                .utf8
+                        )
+                else {
+                    return nil
+                }
+
+                let trimmed =
+                    output
+                        .trimmingCharacters(
+                            in:
+                                .whitespacesAndNewlines
+                        )
+
+                if trimmed.isEmpty {
+
+                    return nil
+                }
+
+                return trimmed
             }
+            .value
 
-            guard
-                let output =
-                    String(
-                        data:
-                            outputData,
-                        encoding:
-                            .utf8
-                    )
-            else {
-                return nil
-            }
+        await DynamicNotchMediaBridgeGate
+            .shared
+            .release()
 
-            let trimmed =
-                output
-                    .trimmingCharacters(
-                        in:
-                            .whitespacesAndNewlines
-                    )
-
-            return trimmed.isEmpty
-                ? nil
-                : trimmed
-        }
-        .value
+        return result
     }
 
     // MARK: - Identity
 
     nonisolated
     private static func trackIdentity(
-        _ snapshot: MediaPlaybackSnapshot
+        _ snapshot:
+            MediaPlaybackSnapshot
     ) -> String {
 
         makeTrackIdentity(
@@ -1024,7 +1027,9 @@ final class DynamicNotchMediaController: MediaController {
             artist,
             album,
             String(
-                Int(duration)
+                Int(
+                    duration
+                )
             )
         ]
         .joined(
@@ -1035,7 +1040,8 @@ final class DynamicNotchMediaController: MediaController {
 
     nonisolated
     private static func hasValidMedia(
-        _ snapshot: MediaPlaybackSnapshot
+        _ snapshot:
+            MediaPlaybackSnapshot
     ) -> Bool {
 
         let title =
