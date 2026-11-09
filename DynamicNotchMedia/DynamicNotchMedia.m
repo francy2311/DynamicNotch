@@ -1016,6 +1016,8 @@ XS(
 
     dXSARGS;
 
+    (void)items;
+    
     char *file =
         __FILE__;
 

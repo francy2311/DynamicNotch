@@ -2,6 +2,14 @@ import Foundation
 import Combine
 import AppKit
 
+extension Notification.Name {
+
+    static let dynamicNotchTimerDidFinish =
+        Notification.Name(
+            "dynamicNotchTimerDidFinish"
+        )
+}
+
 @MainActor
 final class NotchTimerController: ObservableObject {
 
@@ -37,7 +45,8 @@ final class NotchTimerController: ObservableObject {
 
         return min(
             max(
-                remainingSeconds / totalSeconds,
+                remainingSeconds
+                / totalSeconds,
                 0
             ),
             1
@@ -50,7 +59,8 @@ final class NotchTimerController: ObservableObject {
         let seconds =
             max(
                 Int(
-                    remainingSeconds.rounded(.up)
+                    remainingSeconds
+                        .rounded(.up)
                 ),
                 0
             )
@@ -90,23 +100,67 @@ final class NotchTimerController: ObservableObject {
     ) {
 
         let safeMinutes =
+            max(
+                minutes,
+                1
+            )
+
+        start(
+            seconds:
+                TimeInterval(
+                    safeMinutes * 60
+                )
+        )
+    }
+
+    func start(
+        hours: Int,
+        minutes: Int
+    ) {
+
+        let safeHours =
+            max(
+                hours,
+                0
+            )
+
+        let safeMinutes =
             min(
                 max(
                     minutes,
-                    1
+                    0
                 ),
-                120
+                59
             )
+
+        let seconds =
+            TimeInterval(
+                (safeHours * 3600)
+                +
+                (safeMinutes * 60)
+            )
+
+        guard seconds > 0 else {
+            return
+        }
+
+        start(
+            seconds:
+                seconds
+        )
+    }
+
+    private func start(
+        seconds: TimeInterval
+    ) {
 
         stopInternalTimer()
 
         totalSeconds =
-            TimeInterval(
-                safeMinutes * 60
-            )
+            seconds
 
         remainingSeconds =
-            totalSeconds
+            seconds
 
         isFinished =
             false
@@ -117,7 +171,7 @@ final class NotchTimerController: ObservableObject {
         targetDate =
             Date()
                 .addingTimeInterval(
-                    totalSeconds
+                    seconds
                 )
 
         startInternalTimer()
@@ -202,7 +256,7 @@ final class NotchTimerController: ObservableObject {
                     true
             ) { [weak self] _ in
 
-                Task { @MainActor in
+                MainActor.assumeIsolated {
 
                     self?
                         .updateRemainingTime()
@@ -270,7 +324,36 @@ final class NotchTimerController: ObservableObject {
         isFinished =
             true
 
-        NSSound.beep()
+        // Suono più evidente del semplice beep.
+        if let sound =
+            NSSound(
+                named:
+                    NSSound.Name(
+                        "Glass"
+                    )
+            ) {
+
+            sound.play()
+
+        } else {
+
+            NSSound.beep()
+        }
+
+        // Fa rimbalzare l'icona Dock se visibile
+        // e comunque segnala attenzione a macOS.
+        NSApp.requestUserAttention(
+            .criticalRequest
+        )
+
+        // Comunica alla UI della notch
+        // che il timer è terminato.
+        NotificationCenter.default.post(
+            name:
+                .dynamicNotchTimerDidFinish,
+            object:
+                nil
+        )
     }
 
     // MARK: - Finished State

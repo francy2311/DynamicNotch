@@ -6,22 +6,30 @@ struct TimerView: View {
     // MARK: - Controller
 
     @ObservedObject
-    var timerController:
-        NotchTimerController
+    var timerController: NotchTimerController
 
     // MARK: - State
 
     @State
-    private var selectedTimerMinutes =
-        5
+    private var selectedTimerMinutes = 5
+
+    @State
+    private var isCustomTimer = false
+
+    @State
+    private var customTimerMinutes = 30
+
+    // MARK: - Limits
+
+    private let minimumCustomMinutes = 1
+    private let maximumCustomMinutes = (23 * 60) + 59
 
     // MARK: - Body
 
     var body: some View {
 
         VStack(
-            spacing:
-                10
+            spacing: 10
         ) {
 
             if timerController.totalSeconds > 0 {
@@ -33,145 +41,101 @@ struct TimerView: View {
                 timerSetupContent
             }
         }
-        .foregroundStyle(
-            .white
-        )
-        .padding(
-            .horizontal,
-            20
-        )
-        .padding(
-            .bottom,
-            12
-        )
+        .foregroundStyle(.white)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
     }
 
     // MARK: - Timer Setup
 
-    private var timerSetupContent:
-        some View {
+    private var timerSetupContent: some View {
 
         VStack(
-            spacing:
-                11
+            spacing: 11
         ) {
 
             HStack(
-                spacing:
-                    12
+                spacing: 12
             ) {
 
                 ZStack {
 
                     RoundedRectangle(
-                        cornerRadius:
-                            12,
-                        style:
-                            .continuous
+                        cornerRadius: 12,
+                        style: .continuous
                     )
                     .fill(
                         Color.white
-                            .opacity(
-                                0.09
-                            )
+                            .opacity(0.09)
                     )
 
                     Image(
-                        systemName:
-                            "timer"
+                        systemName: "timer"
                     )
                     .font(
                         .system(
-                            size:
-                                17,
-                            weight:
-                                .semibold
+                            size: 17,
+                            weight: .semibold
                         )
                     )
                 }
                 .frame(
-                    width:
-                        44,
-                    height:
-                        44
+                    width: 44,
+                    height: 44
                 )
 
                 VStack(
-                    alignment:
-                        .leading,
-                    spacing:
-                        1
+                    alignment: .leading,
+                    spacing: 1
                 ) {
 
-                    Text(
-                        "Timer"
-                    )
-                    .font(
-                        .system(
-                            size:
-                                11,
-                            weight:
-                                .semibold
+                    Text("Timer")
+                        .font(
+                            .system(
+                                size: 11,
+                                weight: .semibold
+                            )
                         )
-                    )
-                    .foregroundStyle(
-                        .secondary
-                    )
+                        .foregroundStyle(.secondary)
 
-                    Text(
-                        timerSetupTimeText
-                    )
-                    .font(
-                        .system(
-                            size:
-                                23,
-                            weight:
-                                .semibold,
-                            design:
-                                .rounded
+                    Text(timerSetupTimeText)
+                        .font(
+                            .system(
+                                size: 23,
+                                weight: .semibold,
+                                design: .rounded
+                            )
                         )
-                    )
-                    .monospacedDigit()
+                        .monospacedDigit()
                 }
 
                 Spacer()
 
                 Button {
 
-                    timerController
-                        .start(
-                            minutes:
-                                selectedTimerMinutes
-                        )
+                    startSelectedTimer()
 
                 } label: {
 
                     HStack(
-                        spacing:
-                            5
+                        spacing: 5
                     ) {
 
                         Image(
-                            systemName:
-                                "play.fill"
+                            systemName: "play.fill"
                         )
                         .font(
                             .system(
-                                size:
-                                    8
+                                size: 8
                             )
                         )
 
-                        Text(
-                            "Avvia"
-                        )
+                        Text("Avvia")
                     }
                     .font(
                         .system(
-                            size:
-                                10,
-                            weight:
-                                .semibold
+                            size: 10,
+                            weight: .semibold
                         )
                     )
                     .padding(
@@ -179,89 +143,157 @@ struct TimerView: View {
                         13
                     )
                     .frame(
-                        height:
-                            28
+                        height: 28
                     )
                     .background(
                         Color.white
-                            .opacity(
-                                0.15
-                            )
+                            .opacity(0.15)
                     )
                     .clipShape(
                         Capsule()
                     )
                 }
-                .buttonStyle(
-                    .plain
-                )
+                .buttonStyle(.plain)
             }
 
-            timerPresetSelector
+            if isCustomTimer {
+
+                customTimerSelector
+
+            } else {
+
+                timerPresetSelector
+            }
         }
     }
 
-    private var timerSetupTimeText:
-        String {
+    // MARK: - Setup Time
 
-        String(
-            format:
-                "%02d:00",
-            selectedTimerMinutes
+    private var timerSetupTimeText: String {
+
+        let totalMinutes =
+            isCustomTimer
+            ? customTimerMinutes
+            : selectedTimerMinutes
+
+        let hours =
+            totalMinutes / 60
+
+        let minutes =
+            totalMinutes % 60
+
+        if hours > 0 {
+
+            return String(
+                format: "%d:%02d:00",
+                hours,
+                minutes
+            )
+        }
+
+        return String(
+            format: "%02d:00",
+            totalMinutes
         )
     }
 
-    private var timerPresetSelector:
-        some View {
+    // MARK: - Start
+
+    private func startSelectedTimer() {
+
+        let minutes =
+            isCustomTimer
+            ? customTimerMinutes
+            : selectedTimerMinutes
+
+        timerController.start(
+            minutes: minutes
+        )
+    }
+
+    // MARK: - Preset Selector
+
+    private var timerPresetSelector: some View {
 
         HStack(
-            spacing:
-                6
+            spacing: 6
         ) {
 
             timerPresetButton(
-                minutes:
-                    5
+                minutes: 5
             )
 
             timerPresetButton(
-                minutes:
-                    10
+                minutes: 10
             )
 
             timerPresetButton(
-                minutes:
-                    15
+                minutes: 15
             )
 
             timerPresetButton(
-                minutes:
-                    25
+                minutes: 25
             )
+
+            Button {
+
+                withAnimation(
+                    .easeOut(
+                        duration: 0.15
+                    )
+                ) {
+
+                    isCustomTimer = true
+                }
+
+            } label: {
+
+                Image(
+                    systemName: "slider.horizontal.3"
+                )
+                .font(
+                    .system(
+                        size: 10,
+                        weight: .medium
+                    )
+                )
+                .foregroundStyle(
+                    .secondary
+                )
+                .frame(
+                    width: 32,
+                    height: 27
+                )
+                .contentShape(
+                    Rectangle()
+                )
+                .background(
+                    Color.white
+                        .opacity(0.04)
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 8,
+                        style: .continuous
+                    )
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Tempo personalizzato")
         }
     }
 
     private func timerPresetButton(
-        minutes:
-            Int
+        minutes: Int
     ) -> some View {
 
         let selected =
-            selectedTimerMinutes
-            == minutes
+            selectedTimerMinutes == minutes
 
         return Button {
 
-            withAnimation(
-                .easeOut(
-                    duration:
-                        0.15
-                )
-            ) {
-
-                selectedTimerMinutes =
-                    minutes
-            }
+            selectedTimerMinutes =
+                minutes
 
         } label: {
 
@@ -270,8 +302,7 @@ struct TimerView: View {
             )
             .font(
                 .system(
-                    size:
-                        9,
+                    size: 9,
                     weight:
                         selected
                         ? .semibold
@@ -284,12 +315,13 @@ struct TimerView: View {
                 : .secondary
             )
             .frame(
-                maxWidth:
-                    .infinity
+                maxWidth: .infinity
             )
             .frame(
-                height:
-                    27
+                height: 27
+            )
+            .contentShape(
+                Rectangle()
             )
             .background(
                 Color.white
@@ -302,10 +334,8 @@ struct TimerView: View {
             .overlay {
 
                 RoundedRectangle(
-                    cornerRadius:
-                        8,
-                    style:
-                        .continuous
+                    cornerRadius: 8,
+                    style: .continuous
                 )
                 .stroke(
                     Color.white
@@ -314,46 +344,226 @@ struct TimerView: View {
                             ? 0.13
                             : 0
                         ),
-                    lineWidth:
-                        1
+                    lineWidth: 1
                 )
             }
             .clipShape(
                 RoundedRectangle(
-                    cornerRadius:
-                        8,
-                    style:
-                        .continuous
+                    cornerRadius: 8,
+                    style: .continuous
                 )
             )
         }
-        .buttonStyle(
-            .plain
-        )
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Custom Timer Selector
+
+    private var customTimerSelector: some View {
+
+        HStack(
+            spacing: 6
+        ) {
+
+            Button {
+
+                guard
+                    customTimerMinutes >
+                        minimumCustomMinutes
+                else {
+                    return
+                }
+
+                customTimerMinutes -= 1
+
+            } label: {
+
+                Image(
+                    systemName: "minus"
+                )
+                .font(
+                    .system(
+                        size: 9,
+                        weight: .bold
+                    )
+                )
+                .frame(
+                    width: 32,
+                    height: 27
+                )
+                .contentShape(
+                    Rectangle()
+                )
+                .background(
+                    Color.white
+                        .opacity(0.08)
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 8,
+                        style: .continuous
+                    )
+                )
+            }
+            .buttonStyle(.plain)
+
+            Text(
+                customTimerDisplayText
+            )
+            .font(
+                .system(
+                    size: 10,
+                    weight: .semibold,
+                    design: .rounded
+                )
+            )
+            .monospacedDigit()
+            .frame(
+                maxWidth: .infinity
+            )
+            .frame(
+                height: 27
+            )
+            .background(
+                Color.white
+                    .opacity(0.06)
+            )
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 8,
+                    style: .continuous
+                )
+            )
+
+            Button {
+
+                guard
+                    customTimerMinutes <
+                        maximumCustomMinutes
+                else {
+                    return
+                }
+
+                customTimerMinutes += 1
+
+            } label: {
+
+                Image(
+                    systemName: "plus"
+                )
+                .font(
+                    .system(
+                        size: 9,
+                        weight: .bold
+                    )
+                )
+                .frame(
+                    width: 32,
+                    height: 27
+                )
+                .contentShape(
+                    Rectangle()
+                )
+                .background(
+                    Color.white
+                        .opacity(0.08)
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 8,
+                        style: .continuous
+                    )
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+
+                withAnimation(
+                    .easeOut(
+                        duration: 0.15
+                    )
+                ) {
+
+                    isCustomTimer = false
+                }
+
+            } label: {
+
+                Image(
+                    systemName: "xmark"
+                )
+                .font(
+                    .system(
+                        size: 9,
+                        weight: .semibold
+                    )
+                )
+                .foregroundStyle(
+                    .secondary
+                )
+                .frame(
+                    width: 32,
+                    height: 27
+                )
+                .contentShape(
+                    Rectangle()
+                )
+                .background(
+                    Color.white
+                        .opacity(0.04)
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 8,
+                        style: .continuous
+                    )
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Torna ai preset")
+        }
+    }
+
+    private var customTimerDisplayText: String {
+
+        let hours =
+            customTimerMinutes / 60
+
+        let minutes =
+            customTimerMinutes % 60
+
+        if hours == 0 {
+            return "\(minutes) min"
+        }
+
+        if minutes == 0 {
+
+            return hours == 1
+            ? "1 h"
+            : "\(hours) h"
+        }
+
+        return "\(hours) h \(minutes) min"
     }
 
     // MARK: - Active Timer
 
-    private var activeTimerContent:
-        some View {
+    private var activeTimerContent: some View {
 
         VStack(
-            spacing:
-                10
+            spacing: 10
         ) {
 
             HStack(
-                spacing:
-                    12
+                spacing: 12
             ) {
 
                 ZStack {
 
                     RoundedRectangle(
-                        cornerRadius:
-                            12,
-                        style:
-                            .continuous
+                        cornerRadius: 12,
+                        style: .continuous
                     )
                     .fill(
                         Color.white
@@ -374,25 +584,19 @@ struct TimerView: View {
                     )
                     .font(
                         .system(
-                            size:
-                                17,
-                            weight:
-                                .semibold
+                            size: 17,
+                            weight: .semibold
                         )
                     )
                 }
                 .frame(
-                    width:
-                        44,
-                    height:
-                        44
+                    width: 44,
+                    height: 44
                 )
 
                 VStack(
-                    alignment:
-                        .leading,
-                    spacing:
-                        1
+                    alignment: .leading,
+                    spacing: 1
                 ) {
 
                     Text(
@@ -404,10 +608,8 @@ struct TimerView: View {
                     )
                     .font(
                         .system(
-                            size:
-                                10,
-                            weight:
-                                .semibold
+                            size: 10,
+                            weight: .semibold
                         )
                     )
                     .foregroundStyle(
@@ -420,12 +622,9 @@ struct TimerView: View {
                     )
                     .font(
                         .system(
-                            size:
-                                23,
-                            weight:
-                                .semibold,
-                            design:
-                                .rounded
+                            size: 23,
+                            weight: .semibold,
+                            design: .rounded
                         )
                     )
                     .monospacedDigit()
@@ -448,39 +647,30 @@ struct TimerView: View {
                         )
                         .font(
                             .system(
-                                size:
-                                    11,
-                                weight:
-                                    .semibold
+                                size: 11,
+                                weight: .semibold
                             )
                         )
                         .frame(
-                            width:
-                                30,
-                            height:
-                                30
+                            width: 30,
+                            height: 30
                         )
                         .background(
                             Color.white
-                                .opacity(
-                                    0.10
-                                )
+                                .opacity(0.10)
                         )
                         .clipShape(
                             Circle()
                         )
                     }
-                    .buttonStyle(
-                        .plain
-                    )
+                    .buttonStyle(.plain)
                 }
             }
 
             if !timerController.isFinished {
 
                 VStack(
-                    spacing:
-                        8
+                    spacing: 8
                 ) {
 
                     ProgressView(
@@ -497,8 +687,7 @@ struct TimerView: View {
                     )
 
                     HStack(
-                        spacing:
-                            8
+                        spacing: 8
                     ) {
 
                         Button {
@@ -520,7 +709,6 @@ struct TimerView: View {
                                 timerController.isRunning
                                 ? "Pausa"
                                 : "Riprendi",
-
                                 systemImage:
                                     timerController.isRunning
                                     ? "pause.fill"
@@ -528,33 +716,25 @@ struct TimerView: View {
                             )
                             .font(
                                 .system(
-                                    size:
-                                        9,
-                                    weight:
-                                        .semibold
+                                    size: 9,
+                                    weight: .semibold
                                 )
                             )
                             .frame(
-                                maxWidth:
-                                    .infinity
+                                maxWidth: .infinity
                             )
                             .frame(
-                                height:
-                                    27
+                                height: 27
                             )
                             .background(
                                 Color.white
-                                    .opacity(
-                                        0.12
-                                    )
+                                    .opacity(0.12)
                             )
                             .clipShape(
                                 Capsule()
                             )
                         }
-                        .buttonStyle(
-                            .plain
-                        )
+                        .buttonStyle(.plain)
 
                         Button {
 
@@ -570,36 +750,28 @@ struct TimerView: View {
                             )
                             .font(
                                 .system(
-                                    size:
-                                        9,
-                                    weight:
-                                        .semibold
+                                    size: 9,
+                                    weight: .semibold
                                 )
                             )
                             .foregroundStyle(
                                 .secondary
                             )
                             .frame(
-                                maxWidth:
-                                    .infinity
+                                maxWidth: .infinity
                             )
                             .frame(
-                                height:
-                                    27
+                                height: 27
                             )
                             .background(
                                 Color.white
-                                    .opacity(
-                                        0.05
-                                    )
+                                    .opacity(0.05)
                             )
                             .clipShape(
                                 Capsule()
                             )
                         }
-                        .buttonStyle(
-                            .plain
-                        )
+                        .buttonStyle(.plain)
                     }
                 }
 
@@ -612,10 +784,8 @@ struct TimerView: View {
                     )
                     .font(
                         .system(
-                            size:
-                                10,
-                            weight:
-                                .medium
+                            size: 10,
+                            weight: .medium
                         )
                     )
                     .foregroundStyle(
@@ -636,10 +806,8 @@ struct TimerView: View {
                         )
                         .font(
                             .system(
-                                size:
-                                    10,
-                                weight:
-                                    .semibold
+                                size: 10,
+                                weight: .semibold
                             )
                         )
                         .padding(
@@ -647,22 +815,17 @@ struct TimerView: View {
                             12
                         )
                         .frame(
-                            height:
-                                27
+                            height: 27
                         )
                         .background(
                             Color.white
-                                .opacity(
-                                    0.13
-                                )
+                                .opacity(0.13)
                         )
                         .clipShape(
                             Capsule()
                         )
                     }
-                    .buttonStyle(
-                        .plain
-                    )
+                    .buttonStyle(.plain)
                 }
             }
         }

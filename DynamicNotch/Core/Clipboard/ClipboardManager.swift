@@ -6,44 +6,25 @@ final class ClipboardManager: ObservableObject {
 
     // MARK: - Item
 
-    struct ClipboardItem:
-        Identifiable,
-        Equatable {
+    struct ClipboardItem: Identifiable, Equatable {
 
-        enum Kind:
-            Equatable {
-
+        enum Kind: Equatable {
             case text
             case file
         }
 
-        let id:
-            UUID
-
-        let kind:
-            Kind
-
-        let text:
-            String?
-
-        let fileURL:
-            URL?
-
-        let copiedAt:
-            Date
+        let id: UUID
+        let kind: Kind
+        let text: String?
+        let fileURL: URL?
+        let copiedAt: Date
 
         // MARK: Display
 
-        var preview:
-            String {
-
+        var preview: String {
             switch kind {
-
             case .text:
-
-                let value =
-                    text
-                    ?? ""
+                let value = text ?? ""
 
                 let cleaned =
                     value
@@ -56,41 +37,30 @@ final class ClipboardManager: ObservableObject {
                             with: " "
                         )
                         .trimmingCharacters(
-                            in:
-                                .whitespacesAndNewlines
+                            in: .whitespacesAndNewlines
                         )
 
-                guard
-                    cleaned.count > 70
-                else {
+                guard cleaned.count > 70 else {
                     return cleaned
                 }
 
                 return String(
-                    cleaned.prefix(
-                        70
-                    )
-                )
-                + "…"
+                    cleaned.prefix(70)
+                ) + "…"
 
             case .file:
-
                 return fileURL?
                     .lastPathComponent
                     ?? "File"
             }
         }
 
-        var subtitle:
-            String? {
-
+        var subtitle: String? {
             switch kind {
-
             case .text:
                 return nil
 
             case .file:
-
                 guard let fileURL else {
                     return nil
                 }
@@ -101,34 +71,24 @@ final class ClipboardManager: ObservableObject {
             }
         }
 
-        var systemImage:
-            String {
-
+        var systemImage: String {
             switch kind {
-
             case .text:
-
                 return "doc.on.doc"
 
             case .file:
-
                 guard let fileURL else {
                     return "doc.fill"
                 }
 
-                var isDirectory:
-                    ObjCBool = false
+                var isDirectory: ObjCBool = false
 
-                FileManager.default
-                    .fileExists(
-                        atPath:
-                            fileURL.path,
-                        isDirectory:
-                            &isDirectory
-                    )
+                FileManager.default.fileExists(
+                    atPath: fileURL.path,
+                    isDirectory: &isDirectory
+                )
 
                 if isDirectory.boolValue {
-
                     return "folder.fill"
                 }
 
@@ -138,7 +98,6 @@ final class ClipboardManager: ObservableObject {
                         .lowercased()
 
                 switch ext {
-
                 case "png",
                      "jpg",
                      "jpeg",
@@ -146,11 +105,9 @@ final class ClipboardManager: ObservableObject {
                      "heic",
                      "webp",
                      "tiff":
-
                     return "photo.fill"
 
                 case "pdf":
-
                     return "doc.richtext.fill"
 
                 case "zip",
@@ -158,7 +115,6 @@ final class ClipboardManager: ObservableObject {
                      "7z",
                      "tar",
                      "gz":
-
                     return "archivebox.fill"
 
                 case "mp3",
@@ -166,18 +122,15 @@ final class ClipboardManager: ObservableObject {
                      "m4a",
                      "aac",
                      "flac":
-
                     return "music.note"
 
                 case "mp4",
                      "mov",
                      "mkv",
                      "avi":
-
                     return "film.fill"
 
                 default:
-
                     return "doc.fill"
                 }
             }
@@ -185,21 +138,12 @@ final class ClipboardManager: ObservableObject {
 
         // MARK: Identity
 
-        var identityKey:
-            String {
-
+        var identityKey: String {
             switch kind {
-
             case .text:
-
-                return "text:"
-                    + (
-                        text
-                        ?? ""
-                    )
+                return "text:" + (text ?? "")
 
             case .file:
-
                 return "file:"
                     + (
                         fileURL?
@@ -214,29 +158,24 @@ final class ClipboardManager: ObservableObject {
     // MARK: - Published State
 
     @Published
-    private(set) var items:
-        [ClipboardItem] = []
+    private(set) var items: [ClipboardItem] = []
 
     // MARK: - Configuration
 
-    private let maximumItems =
-        10
+    private let maximumItems = 10
 
     private let pasteboard =
         NSPasteboard.general
 
     // MARK: - Monitoring
 
-    private var timer:
-        Timer?
+    private var timer: Timer?
 
-    private var lastChangeCount:
-        Int
+    private var lastChangeCount: Int
 
     // MARK: - Init
 
     init() {
-
         lastChangeCount =
             pasteboard.changeCount
 
@@ -244,42 +183,30 @@ final class ClipboardManager: ObservableObject {
     }
 
     deinit {
-
-        timer?
-            .invalidate()
+        timer?.invalidate()
     }
 
     // MARK: - Monitoring
 
     private func startMonitoring() {
-
-        let timer =
-            Timer.scheduledTimer(
-                withTimeInterval:
-                    0.50,
-                repeats:
-                    true
-            ) { [weak self] _ in
-
-                Task { @MainActor in
-
-                    self?
-                        .checkClipboard()
-                }
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: 0.50,
+            repeats: true
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.checkClipboard()
             }
+        }
 
         RunLoop.main.add(
             timer,
-            forMode:
-                .common
+            forMode: .common
         )
 
-        self.timer =
-            timer
+        self.timer = timer
     }
 
     private func checkClipboard() {
-
         let currentChangeCount =
             pasteboard.changeCount
 
@@ -298,6 +225,7 @@ final class ClipboardManager: ObservableObject {
 
          Il Finder spesso espone anche
          rappresentazioni testuali dei file.
+
          Se trovassimo prima .string,
          rischieremmo quindi di aggiungere
          una voce testuale invece del file vero.
@@ -307,11 +235,7 @@ final class ClipboardManager: ObservableObject {
             readFileURLs()
 
         if !fileURLs.isEmpty {
-
-            addFiles(
-                fileURLs
-            )
-
+            addFiles(fileURLs)
             return
         }
 
@@ -320,28 +244,21 @@ final class ClipboardManager: ObservableObject {
         guard
             let text =
                 pasteboard.string(
-                    forType:
-                        .string
+                    forType: .string
                 )
         else {
             return
         }
 
-        addText(
-            text
-        )
+        addText(text)
     }
 
     // MARK: - Read Files
 
-    private func readFileURLs()
-        -> [URL] {
-
+    private func readFileURLs() -> [URL] {
         let options:
             [NSPasteboard.ReadingOptionKey: Any] = [
-
-                .urlReadingFileURLsOnly:
-                    true
+                .urlReadingFileURLsOnly: true
             ]
 
         guard
@@ -350,33 +267,27 @@ final class ClipboardManager: ObservableObject {
                     forClasses: [
                         NSURL.self
                     ],
-                    options:
-                        options
+                    options: options
                 )
         else {
             return []
         }
 
-        return objects.compactMap {
+        return objects
+            .compactMap {
+                if let url = $0 as? URL {
+                    return url
+                }
 
-            if let url =
-                $0 as? URL {
+                if let nsURL = $0 as? NSURL {
+                    return nsURL as URL
+                }
 
-                return url
+                return nil
             }
-
-            if let nsURL =
-                $0 as? NSURL {
-
-                return nsURL as URL
+            .filter {
+                $0.isFileURL
             }
-
-            return nil
-        }
-        .filter {
-
-            $0.isFileURL
-        }
     }
 
     // MARK: - Add Text
@@ -384,41 +295,26 @@ final class ClipboardManager: ObservableObject {
     private func addText(
         _ text: String
     ) {
-
         let trimmed =
             text
                 .trimmingCharacters(
-                    in:
-                        .whitespacesAndNewlines
+                    in: .whitespacesAndNewlines
                 )
 
-        guard
-            !trimmed.isEmpty
-        else {
+        guard !trimmed.isEmpty else {
             return
         }
 
         let item =
             ClipboardItem(
-                id:
-                    UUID(),
-
-                kind:
-                    .text,
-
-                text:
-                    text,
-
-                fileURL:
-                    nil,
-
-                copiedAt:
-                    Date()
+                id: UUID(),
+                kind: .text,
+                text: text,
+                fileURL: nil,
+                copiedAt: Date()
             )
 
-        insert(
-            item
-        )
+        insert(item)
     }
 
     // MARK: - Add Files
@@ -426,7 +322,6 @@ final class ClipboardManager: ObservableObject {
     private func addFiles(
         _ urls: [URL]
     ) {
-
         /*
          Se copi più file dal Finder,
          li registriamo tutti.
@@ -437,32 +332,19 @@ final class ClipboardManager: ObservableObject {
          */
 
         for url in urls.reversed() {
-
             let normalizedURL =
-                url
-                    .standardizedFileURL
+                url.standardizedFileURL
 
             let item =
                 ClipboardItem(
-                    id:
-                        UUID(),
-
-                    kind:
-                        .file,
-
-                    text:
-                        nil,
-
-                    fileURL:
-                        normalizedURL,
-
-                    copiedAt:
-                        Date()
+                    id: UUID(),
+                    kind: .file,
+                    text: nil,
+                    fileURL: normalizedURL,
+                    copiedAt: Date()
                 )
 
-            insert(
-                item
-            )
+            insert(item)
         }
     }
 
@@ -471,7 +353,6 @@ final class ClipboardManager: ObservableObject {
     private func insert(
         _ item: ClipboardItem
     ) {
-
         /*
          Deduplica.
 
@@ -481,20 +362,16 @@ final class ClipboardManager: ObservableObject {
          */
 
         items.removeAll {
-
             $0.identityKey
                 == item.identityKey
         }
 
         items.insert(
             item,
-            at:
-                0
+            at: 0
         )
 
-        if items.count
-            > maximumItems {
-
+        if items.count > maximumItems {
             items =
                 Array(
                     items.prefix(
@@ -509,34 +386,20 @@ final class ClipboardManager: ObservableObject {
     func copy(
         _ item: ClipboardItem
     ) {
-
         switch item.kind {
-
         case .text:
-
-            guard
-                let text =
-                    item.text
-            else {
+            guard let text = item.text else {
                 return
             }
 
-            copyText(
-                text
-            )
+            copyText(text)
 
         case .file:
-
-            guard
-                let fileURL =
-                    item.fileURL
-            else {
+            guard let fileURL = item.fileURL else {
                 return
             }
 
-            copyFile(
-                fileURL
-            )
+            copyFile(fileURL)
         }
     }
 
@@ -545,21 +408,17 @@ final class ClipboardManager: ObservableObject {
     private func copyText(
         _ text: String
     ) {
-
         pasteboard.clearContents()
 
         pasteboard.setString(
             text,
-            forType:
-                .string
+            forType: .string
         )
 
         lastChangeCount =
             pasteboard.changeCount
 
-        addText(
-            text
-        )
+        addText(text)
     }
 
     // MARK: - Copy File
@@ -567,7 +426,6 @@ final class ClipboardManager: ObservableObject {
     private func copyFile(
         _ url: URL
     ) {
-
         pasteboard.clearContents()
 
         pasteboard.writeObjects(
@@ -581,25 +439,14 @@ final class ClipboardManager: ObservableObject {
 
         let item =
             ClipboardItem(
-                id:
-                    UUID(),
-
-                kind:
-                    .file,
-
-                text:
-                    nil,
-
-                fileURL:
-                    url,
-
-                copiedAt:
-                    Date()
+                id: UUID(),
+                kind: .file,
+                text: nil,
+                fileURL: url,
+                copiedAt: Date()
             )
 
-        insert(
-            item
-        )
+        insert(item)
     }
 
     // MARK: - Remove
@@ -607,18 +454,14 @@ final class ClipboardManager: ObservableObject {
     func remove(
         _ item: ClipboardItem
     ) {
-
         items.removeAll {
-
-            $0.id
-                == item.id
+            $0.id == item.id
         }
     }
 
     // MARK: - Clear
 
     func clearHistory() {
-
         /*
          Cancella solamente la cronologia
          interna di Dynamic Notch.

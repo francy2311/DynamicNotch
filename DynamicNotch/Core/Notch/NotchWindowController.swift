@@ -6,14 +6,9 @@ import CoreGraphics
 @MainActor
 final class NotchWindowController {
 
-    private struct NotchGeometry:
-        Equatable {
-
-        let width:
-            CGFloat
-
-        let height:
-            CGFloat
+    private struct NotchGeometry: Equatable {
+        let width: CGFloat
+        let height: CGFloat
     }
 
     private var panels:
@@ -28,61 +23,43 @@ final class NotchWindowController {
     private var cancellables =
         Set<AnyCancellable>()
 
-    private var isVisible =
-        true
+    private var isVisible = true
 
     init() {
-
         startObservingScreens()
-
         startObservingSettings()
     }
 
     deinit {
-
         if let screenObserver {
-
             NotificationCenter.default
                 .removeObserver(
                     screenObserver
                 )
         }
 
-        cancellables
-            .removeAll()
+        cancellables.removeAll()
     }
 
     // MARK: - Show / Hide
 
     func show() {
-
-        isVisible =
-            true
-
+        isVisible = true
         refreshPanels()
     }
 
     func hide() {
-
-        isVisible =
-            false
+        isVisible = false
 
         for panel in panels.values {
-
-            panel.orderOut(
-                nil
-            )
+            panel.orderOut(nil)
         }
     }
 
     // MARK: - Screen Observer
 
     private func startObservingScreens() {
-
-        guard
-            screenObserver == nil
-        else {
-
+        guard screenObserver == nil else {
             return
         }
 
@@ -92,16 +69,10 @@ final class NotchWindowController {
                     forName:
                         NSApplication
                             .didChangeScreenParametersNotification,
-
-                    object:
-                        nil,
-
-                    queue:
-                        .main
+                    object: nil,
+                    queue: .main
                 ) { [weak self] _ in
-
-                    Task { @MainActor in
-
+                    MainActor.assumeIsolated {
                         self?
                             .screenConfigurationDidChange()
                     }
@@ -111,34 +82,29 @@ final class NotchWindowController {
     // MARK: - Settings Observer
 
     private func startObservingSettings() {
-
         AppSettings.shared
             .$displayMode
             .removeDuplicates()
             .dropFirst()
+            .receive(on: RunLoop.main)
             .sink { [weak self] mode in
-
-                Task { @MainActor in
-
+                MainActor.assumeIsolated {
                     print(
                         "⚙️ Display mode cambiato:",
                         mode.rawValue
                     )
 
-                    self?
-                        .refreshPanels()
+                    self?.refreshPanels()
                 }
             }
             .store(
-                in:
-                    &cancellables
+                in: &cancellables
             )
     }
 
     // MARK: - Screen Change
 
     private func screenConfigurationDidChange() {
-
         print(
             "🖥 Configurazione monitor aggiornata"
         )
@@ -149,47 +115,32 @@ final class NotchWindowController {
     // MARK: - Refresh
 
     private func refreshPanels() {
-
         switch AppSettings.shared.displayMode {
-
         case .automatic:
-
             guard
                 let screen =
                     NotchScreenResolver
                         .preferredScreen()
             else {
-
                 removeAllPanels()
-
                 return
             }
 
-            showOnly(
-                on:
-                    screen
-            )
+            showOnly(on: screen)
 
         case .mainDisplay:
-
             guard
                 let screen =
                     NSScreen.main
                     ?? NSScreen.screens.first
             else {
-
                 removeAllPanels()
-
                 return
             }
 
-            showOnly(
-                on:
-                    screen
-            )
+            showOnly(on: screen)
 
         case .allDisplays:
-
             showOnAllDisplays()
         }
     }
@@ -197,129 +148,89 @@ final class NotchWindowController {
     // MARK: - Single Display
 
     private func showOnly(
-        on screen:
-            NSScreen
+        on screen: NSScreen
     ) {
-
         guard
             let displayID =
                 NotchScreenResolver
                     .displayID(
-                        for:
-                            screen
+                        for: screen
                     )
         else {
-
             return
         }
 
         let otherDisplayIDs =
             panels.keys.filter {
-
                 $0 != displayID
             }
 
         for id in otherDisplayIDs {
-
-            removePanel(
-                for:
-                    id
-            )
+            removePanel(for: id)
         }
 
-        if let panel =
-            panels[
-                displayID
-            ] {
-
+        if let panel = panels[displayID] {
             updatePanel(
                 panel,
-                on:
-                    screen,
-                displayID:
-                    displayID
+                on: screen,
+                displayID: displayID
             )
 
             return
         }
 
         createPanel(
-            on:
-                screen,
-            displayID:
-                displayID
+            on: screen,
+            displayID: displayID
         )
     }
 
     // MARK: - All Displays
 
     private func showOnAllDisplays() {
-
         let screens =
             NSScreen.screens
 
         let activeDisplayIDs =
             Set(
                 screens.compactMap {
-
                     NotchScreenResolver
                         .displayID(
-                            for:
-                                $0
+                            for: $0
                         )
                 }
             )
 
         let obsoleteDisplayIDs =
             panels.keys.filter {
-
-                !activeDisplayIDs.contains(
-                    $0
-                )
+                !activeDisplayIDs.contains($0)
             }
 
         for id in obsoleteDisplayIDs {
-
-            removePanel(
-                for:
-                    id
-            )
+            removePanel(for: id)
         }
 
         for screen in screens {
-
             guard
                 let displayID =
                     NotchScreenResolver
                         .displayID(
-                            for:
-                                screen
+                            for: screen
                         )
             else {
-
                 continue
             }
 
-            if let panel =
-                panels[
-                    displayID
-                ] {
-
+            if let panel = panels[displayID] {
                 updatePanel(
                     panel,
-                    on:
-                        screen,
-                    displayID:
-                        displayID
+                    on: screen,
+                    displayID: displayID
                 )
-
             } else {
-
                 createPanel(
-                    on:
-                        screen,
-                    displayID:
-                        displayID
+                    on: screen,
+                    displayID: displayID
                 )
             }
         }
@@ -328,32 +239,24 @@ final class NotchWindowController {
     // MARK: - Create Panel
 
     private func createPanel(
-        on screen:
-            NSScreen,
-        displayID:
-            CGDirectDisplayID
+        on screen: NSScreen,
+        displayID: CGDirectDisplayID
     ) {
-
         let screenFrame =
             screen.frame
 
         let notchHeight =
             resolvedNotchHeight(
-                for:
-                    screen
+                for: screen
             )
 
         let notchWidth =
             resolvedNotchWidth(
-                for:
-                    screen
+                for: screen
             )
 
-        let panelWidth:
-            CGFloat = 520
-
-        let panelHeight:
-            CGFloat = 180
+        let panelWidth: CGFloat = 520
+        let panelHeight: CGFloat = 180
 
         let x =
             screenFrame.midX
@@ -367,42 +270,26 @@ final class NotchWindowController {
             NSPanel(
                 contentRect:
                     NSRect(
-                        x:
-                            x,
-
-                        y:
-                            y,
-
-                        width:
-                            panelWidth,
-
-                        height:
-                            panelHeight
+                        x: x,
+                        y: y,
+                        width: panelWidth,
+                        height: panelHeight
                     ),
-
                 styleMask: [
                     .borderless,
                     .nonactivatingPanel
                 ],
-
-                backing:
-                    .buffered,
-
-                defer:
-                    false
+                backing: .buffered,
+                defer: false
             )
 
-        panel.level =
-            .statusBar
+        panel.level = .statusBar
 
-        panel.isOpaque =
-            false
+        panel.isOpaque = false
 
-        panel.backgroundColor =
-            .clear
+        panel.backgroundColor = .clear
 
-        panel.hasShadow =
-            false
+        panel.hasShadow = false
 
         panel.collectionBehavior = [
             .canJoinAllSpaces,
@@ -412,38 +299,25 @@ final class NotchWindowController {
 
         panel.contentView =
             makeHostingView(
-                notchWidth:
-                    notchWidth,
-
-                notchHeight:
-                    notchHeight
+                notchWidth: notchWidth,
+                notchHeight: notchHeight
             )
 
-        panels[
-            displayID
-        ] = panel
+        panels[displayID] = panel
 
-        panelGeometries[
-            displayID
-        ] =
+        panelGeometries[displayID] =
             NotchGeometry(
-                width:
-                    notchWidth,
-
-                height:
-                    notchHeight
+                width: notchWidth,
+                height: notchHeight
             )
 
         if isVisible {
-
-            panel
-                .orderFrontRegardless()
+            panel.orderFrontRegardless()
         }
 
         logScreen(
             screen,
-            action:
-                "creata"
+            action: "creata"
         )
     }
 
@@ -452,10 +326,8 @@ final class NotchWindowController {
     private func updatePanel(
         _ panel: NSPanel,
         on screen: NSScreen,
-        displayID:
-            CGDirectDisplayID
+        displayID: CGDirectDisplayID
     ) {
-
         let screenFrame =
             screen.frame
 
@@ -475,33 +347,25 @@ final class NotchWindowController {
 
         panel.setFrameOrigin(
             NSPoint(
-                x:
-                    x,
-
-                y:
-                    y
+                x: x,
+                y: y
             )
         )
 
         let notchWidth =
             resolvedNotchWidth(
-                for:
-                    screen
+                for: screen
             )
 
         let notchHeight =
             resolvedNotchHeight(
-                for:
-                    screen
+                for: screen
             )
 
         let newGeometry =
             NotchGeometry(
-                width:
-                    notchWidth,
-
-                height:
-                    notchHeight
+                width: notchWidth,
+                height: notchHeight
             )
 
         /*
@@ -524,10 +388,7 @@ final class NotchWindowController {
          fisica della notch.
          */
 
-        if panelGeometries[
-            displayID
-        ] != newGeometry {
-
+        if panelGeometries[displayID] != newGeometry {
             print(
                 "📐 Geometria notch cambiata:",
                 displayID
@@ -535,36 +396,23 @@ final class NotchWindowController {
 
             panel.contentView =
                 makeHostingView(
-                    notchWidth:
-                        notchWidth,
-
-                    notchHeight:
-                        notchHeight
+                    notchWidth: notchWidth,
+                    notchHeight: notchHeight
                 )
 
-            panelGeometries[
-                displayID
-            ] =
+            panelGeometries[displayID] =
                 newGeometry
         }
 
         if isVisible {
-
-            panel
-                .orderFrontRegardless()
-
+            panel.orderFrontRegardless()
         } else {
-
-            panel
-                .orderOut(
-                    nil
-                )
+            panel.orderOut(nil)
         }
 
         logScreen(
             screen,
-            action:
-                "aggiornata"
+            action: "aggiornata"
         )
     }
 
@@ -574,15 +422,11 @@ final class NotchWindowController {
         notchWidth: CGFloat,
         notchHeight: CGFloat
     ) -> NSView {
-
         NSHostingView(
             rootView:
                 NotchView(
-                    notchWidth:
-                        notchWidth,
-
-                    notchHeight:
-                        notchHeight
+                    notchWidth: notchWidth,
+                    notchHeight: notchHeight
                 )
         )
     }
@@ -590,30 +434,23 @@ final class NotchWindowController {
     // MARK: - Remove Panel
 
     private func removePanel(
-        for displayID:
-            CGDirectDisplayID
+        for displayID: CGDirectDisplayID
     ) {
-
         guard
             let panel =
                 panels.removeValue(
-                    forKey:
-                        displayID
+                    forKey: displayID
                 )
         else {
-
             return
         }
 
         panelGeometries
             .removeValue(
-                forKey:
-                    displayID
+                forKey: displayID
             )
 
-        panel.orderOut(
-            nil
-        )
+        panel.orderOut(nil)
 
         /*
          Togliendo contentView liberiamo
@@ -624,8 +461,7 @@ final class NotchWindowController {
          quindi controller.stop().
          */
 
-        panel.contentView =
-            nil
+        panel.contentView = nil
 
         panel.close()
 
@@ -636,34 +472,27 @@ final class NotchWindowController {
     }
 
     private func removeAllPanels() {
-
         let ids =
             Array(
                 panels.keys
             )
 
         for id in ids {
-
-            removePanel(
-                for:
-                    id
-            )
+            removePanel(for: id)
         }
     }
 
     // MARK: - Geometry
 
     private func resolvedNotchWidth(
-        for screen:
-            NSScreen
+        for screen: NSScreen
     ) -> CGFloat {
-
-        if let leftArea =
-            screen.auxiliaryTopLeftArea,
-
-           let rightArea =
-            screen.auxiliaryTopRightArea {
-
+        if
+            let leftArea =
+                screen.auxiliaryTopLeftArea,
+            let rightArea =
+                screen.auxiliaryTopRightArea
+        {
             let width =
                 rightArea.minX
                 - leftArea.maxX
@@ -685,15 +514,12 @@ final class NotchWindowController {
     }
 
     private func resolvedNotchHeight(
-        for screen:
-            NSScreen
+        for screen: NSScreen
     ) -> CGFloat {
-
         let safeArea =
             screen.safeAreaInsets.top
 
         if safeArea > 0 {
-
             return safeArea
         }
 
@@ -706,18 +532,13 @@ final class NotchWindowController {
         _ screen: NSScreen,
         action: String
     ) {
-
         if NotchScreenResolver
-            .isBuiltIn(
-                screen
-            ) {
+            .isBuiltIn(screen) {
 
             print(
                 "💻 Dynamic Notch \(action) sul display integrato"
             )
-
         } else {
-
             print(
                 "🖥 Dynamic Notch \(action) sul display esterno"
             )

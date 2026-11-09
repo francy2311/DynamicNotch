@@ -32,51 +32,37 @@ final class BatteryMonitor: ObservableObject {
     // MARK: - Init
 
     init() {
-
         refresh()
-
         startMonitoring()
     }
 
     deinit {
-
-        timer?
-            .invalidate()
+        timer?.invalidate()
     }
 
     // MARK: - Monitoring
 
     private func startMonitoring() {
-
-        let timer =
-            Timer.scheduledTimer(
-                withTimeInterval:
-                    15,
-                repeats:
-                    true
-            ) { [weak self] _ in
-
-                Task { @MainActor in
-
-                    self?
-                        .refresh()
-                }
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: 15,
+            repeats: true
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refresh()
             }
+        }
 
         RunLoop.main.add(
             timer,
-            forMode:
-                .common
+            forMode: .common
         )
 
-        self.timer =
-            timer
+        self.timer = timer
     }
 
     // MARK: - Refresh
 
     func refresh() {
-
         let powerSourcesInfo =
             IOPSCopyPowerSourcesInfo()
                 .takeRetainedValue()
@@ -88,7 +74,6 @@ final class BatteryMonitor: ObservableObject {
             .takeRetainedValue() as Array
 
         for source in powerSources {
-
             guard
                 let description =
                     IOPSGetPowerSourceDescription(
@@ -103,20 +88,13 @@ final class BatteryMonitor: ObservableObject {
 
             guard
                 let type =
-                    description[
-                        kIOPSTypeKey
-                    ] as? String,
-                type ==
-                    kIOPSInternalBatteryType
+                    description[kIOPSTypeKey] as? String,
+                type == kIOPSInternalBatteryType
             else {
                 continue
             }
 
-            update(
-                from:
-                    description
-            )
-
+            update(from: description)
             return
         }
 
@@ -126,170 +104,108 @@ final class BatteryMonitor: ObservableObject {
     // MARK: - Update
 
     private func update(
-        from description:
-            [String: Any]
+        from description: [String: Any]
     ) {
-
         let currentCapacity =
-            description[
-                kIOPSCurrentCapacityKey
-            ] as? Int
+            description[kIOPSCurrentCapacityKey] as? Int
             ?? 0
 
         let maximumCapacity =
-            description[
-                kIOPSMaxCapacityKey
-            ] as? Int
+            description[kIOPSMaxCapacityKey] as? Int
             ?? 100
 
         if maximumCapacity > 0 {
-
-            percentage =
-                Int(
-                    (
-                        Double(
-                            currentCapacity
-                        )
-                        /
-                        Double(
-                            maximumCapacity
-                        )
-                    )
-                    * 100
+            percentage = Int(
+                (
+                    Double(currentCapacity)
+                    / Double(maximumCapacity)
                 )
-
+                * 100
+            )
         } else {
-
-            percentage =
-                currentCapacity
+            percentage = currentCapacity
         }
 
-        percentage =
-            min(
-                max(
-                    percentage,
-                    0
-                ),
-                100
-            )
+        percentage = min(
+            max(percentage, 0),
+            100
+        )
 
         isCharging =
-            description[
-                kIOPSIsChargingKey
-            ] as? Bool
+            description[kIOPSIsChargingKey] as? Bool
             ?? false
 
         let powerState =
-            description[
-                kIOPSPowerSourceStateKey
-            ] as? String
+            description[kIOPSPowerSourceStateKey]
+            as? String
 
         isPluggedIn =
-            powerState
-            == kIOPSACPowerValue
+            powerState == kIOPSACPowerValue
 
         let emptyValue =
-            description[
-                kIOPSTimeToEmptyKey
-            ] as? Int
+            description[kIOPSTimeToEmptyKey]
+            as? Int
 
         if let emptyValue,
            emptyValue > 0 {
-
-            timeToEmptyMinutes =
-                emptyValue
-
+            timeToEmptyMinutes = emptyValue
         } else {
-
-            timeToEmptyMinutes =
-                nil
+            timeToEmptyMinutes = nil
         }
 
         let fullValue =
-            description[
-                kIOPSTimeToFullChargeKey
-            ] as? Int
+            description[kIOPSTimeToFullChargeKey]
+            as? Int
 
         if let fullValue,
            fullValue > 0 {
-
-            timeToFullMinutes =
-                fullValue
-
+            timeToFullMinutes = fullValue
         } else {
-
-            timeToFullMinutes =
-                nil
+            timeToFullMinutes = nil
         }
 
-        isAvailable =
-            true
+        isAvailable = true
     }
 
     // MARK: - Reset
 
     private func reset() {
-
-        percentage =
-            0
-
-        isCharging =
-            false
-
-        isPluggedIn =
-            false
-
-        timeToEmptyMinutes =
-            nil
-
-        timeToFullMinutes =
-            nil
-
-        isAvailable =
-            false
+        percentage = 0
+        isCharging = false
+        isPluggedIn = false
+        timeToEmptyMinutes = nil
+        timeToFullMinutes = nil
+        isAvailable = false
     }
 
     // MARK: - Display
 
-    var systemImage:
-        String {
-
+    var systemImage: String {
         if isCharging {
-
             return "battery.100percent.bolt"
         }
 
         switch percentage {
-
         case 0..<15:
-
             return "battery.0percent"
 
         case 15..<40:
-
             return "battery.25percent"
 
         case 40..<65:
-
             return "battery.50percent"
 
         case 65..<90:
-
             return "battery.75percent"
 
         default:
-
             return "battery.100percent"
         }
     }
 
-    var statusText:
-        String {
-
+    var statusText: String {
         if isCharging {
-
             if percentage >= 100 {
-
                 return "Carica completata"
             }
 
@@ -297,64 +213,43 @@ final class BatteryMonitor: ObservableObject {
         }
 
         if isPluggedIn {
-
             return "Alimentatore collegato"
         }
 
         return "A batteria"
     }
 
-    var remainingTimeText:
-        String? {
-
+    var remainingTimeText: String? {
         if isCharging {
-
-            guard
-                let minutes =
-                    timeToFullMinutes
-            else {
+            guard let minutes = timeToFullMinutes else {
                 return nil
             }
 
-            return formatMinutes(
-                minutes
-            )
-            + " alla carica completa"
+            return formatMinutes(minutes)
+                + " alla carica completa"
         }
 
-        guard
-            let minutes =
-                timeToEmptyMinutes
-        else {
+        guard let minutes = timeToEmptyMinutes else {
             return nil
         }
 
-        return formatMinutes(
-            minutes
-        )
-        + " rimanenti"
+        return formatMinutes(minutes)
+            + " rimanenti"
     }
 
     // MARK: - Formatting
 
     private func formatMinutes(
-        _ minutes:
-            Int
+        _ minutes: Int
     ) -> String {
-
-        let hours =
-            minutes / 60
-
-        let remainingMinutes =
-            minutes % 60
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
 
         if hours == 0 {
-
             return "\(remainingMinutes) min"
         }
 
         if remainingMinutes == 0 {
-
             return "\(hours) h"
         }
 

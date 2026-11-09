@@ -11,10 +11,11 @@ final class MediaKeyController {
         case previous = 18
     }
 
-    // MARK: - State
+    // MARK: - Accessibility State
 
-    private var didRequestAccessibilityThisLaunch =
-        false
+    static var isAccessibilityTrusted: Bool {
+        AXIsProcessTrusted()
+    }
 
     // MARK: - Public
 
@@ -35,8 +36,21 @@ final class MediaKeyController {
     private func send(
         _ key: MediaKey
     ) {
+        /*
+         IMPORTANTE:
 
-        guard checkAccessibilityPermission() else {
+         Qui controlliamo soltanto il permesso.
+
+         NON mostriamo prompt.
+         NON apriamo Impostazioni.
+         NON chiamiamo AXIsProcessTrustedWithOptions.
+
+         In questo modo Dynamic Notch non può
+         aprire automaticamente le Impostazioni
+         durante l'avvio.
+         */
+
+        guard Self.isAccessibilityTrusted else {
 
             print(
                 "❌ Dynamic Notch non ha il permesso Accessibility"
@@ -52,14 +66,12 @@ final class MediaKeyController {
 
         post(
             key,
-            down:
-                true
+            down: true
         )
 
         post(
             key,
-            down:
-                false
+            down: false
         )
     }
 
@@ -67,15 +79,12 @@ final class MediaKeyController {
 
     private func post(
         _ key: MediaKey,
-        down:
-            Bool
+        down: Bool
     ) {
-
-        let flagValue:
-            UInt =
-                down
-                ? 0xA00
-                : 0xB00
+        let flagValue: UInt =
+            down
+            ? 0xA00
+            : 0xB00
 
         let data1 =
             Int(
@@ -149,25 +158,25 @@ final class MediaKeyController {
         )
     }
 
-    // MARK: - Accessibility
+    // MARK: - Manual Accessibility Request
 
-    private func checkAccessibilityPermission()
+    /*
+     Questa funzione deve essere chiamata SOLO
+     da un pulsante esplicito scelto dall'utente.
+
+     Ad esempio:
+     "Abilita controlli multimediali"
+     oppure
+     "Apri Accessibilità".
+     */
+
+    @discardableResult
+    static func requestAccessibilityPermission()
         -> Bool {
 
         if AXIsProcessTrusted() {
-
             return true
         }
-
-        guard
-            !didRequestAccessibilityThisLaunch
-        else {
-
-            return false
-        }
-
-        didRequestAccessibilityThisLaunch =
-            true
 
         let options =
             [
@@ -178,43 +187,25 @@ final class MediaKeyController {
             ]
             as CFDictionary
 
-        _ =
-            AXIsProcessTrustedWithOptions(
-                options
-            )
-
-        DispatchQueue.main.asyncAfter(
-            deadline:
-                .now() + 0.8
-        ) { [weak self] in
-
-            guard
-                let self
-            else {
-                return
-            }
-
-            guard
-                !AXIsProcessTrusted()
-            else {
-                return
-            }
-
-            self.openAccessibilitySettings()
-        }
-
-        return false
+        return AXIsProcessTrustedWithOptions(
+            options
+        )
     }
 
     // MARK: - Accessibility Settings
 
-    private func openAccessibilitySettings() {
+    /*
+     Anche questa funzione deve essere chiamata
+     esclusivamente dopo un'azione volontaria
+     dell'utente.
+     */
 
-        let candidates =
-            [
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"
-            ]
+    static func openAccessibilitySettings() {
+
+        let candidates = [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"
+        ]
 
         for candidate in candidates {
 
