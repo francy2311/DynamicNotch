@@ -107,6 +107,13 @@ Some media and display features use private and may be affected by future macOS 
 
 <br>
 
+## Copyright
+
+© 2026 Francesco Aloisio. All rights reserved.
+
+This project is publicly available for viewing and portfolio purposes.
+No permission is granted to copy, modify, redistribute, or use the source code without explicit authorization from the author.
+
 Made with Swift for macOS 
 
 </div>
