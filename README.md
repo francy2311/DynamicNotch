@@ -1,18 +1,27 @@
 <div align="center">
+
 <img src="assets/DynamicNotch.png" width="150" alt="Dynamic Notch Logo">
+
 # Dynamic Notch
+
 ### Turn your MacBook notch into a smart control center.
 
 <br>
+
 [![macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](#)
 [![Swift](https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white)](#)
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-0D96F6?style=for-the-badge&logo=swift&logoColor=white)](#)
 [![Version](https://img.shields.io/badge/version-1.0.1-8B5CF6?style=for-the-badge)](../../releases/latest)
-<br>
-[![Download](https://img.shields.io/badge/Download-Dynamic_Notch-7C3AED?style=for-the-badge&logo=github)](../../releases/latest)
-</div>
----
 
+<br>
+
+[![Download](https://img.shields.io/badge/Download-Dynamic_Notch-7C3AED?style=for-the-badge&logo=github)](../../releases/latest)
+
+</div>
+
+---
+---
+-
 ## ✨ Features
 
 | | Feature | |
